@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Universe Map</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+    <canvas id="map"></canvas>
+
+    <div id="ui">
+      <button id="backBtn">Back</button>
+      <button id="teleportBtn">Teleport</button>
+
+      <div id="coords1">[?, ? : ?, ?]</div>
+      <div id="coords2">[?, ? : ?, ?]</div>
+      <div id="info">Right click a star or planet.</div>
+
+      <div id="hint">
+        WASD: move · Scroll: zoom · Left click: enter/open · Middle click: select teleport target · Right click: info
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
