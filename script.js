@@ -1,899 +1,1226 @@
-const canvas = document.getElementById("map");
-const ctx = canvas.getContext("2d");
+(() => {
+  "use strict";
 
-const backBtn = document.getElementById("backBtn");
-const teleportBtn = document.getElementById("teleportBtn");
-const coords1 = document.getElementById("coords1");
-const coords2 = document.getElementById("coords2");
-const info = document.getElementById("info");
+  const TAU = Math.PI * 2;
 
-const Universe = {
-  Debug: true,
-  DefaultUniverseSeed: 902177,
-  UniverseSeed: 902177,
-  SystemCount: 100,
-  MinCoord: -100,
-  MaxCoord: 100,
-  CatalogByCoord: null,
-  CatalogArray: null,
-  CatalogSeed: null
-};
-
-function dprint(...args) {
-  if (Universe.Debug) console.log("[Universe]", ...args);
-}
-
-function key2(x, y) {
-  return `${x},${y}`;
-}
-
-function stableHash(...args) {
-  const s = args.join("|");
-  let h = 7;
-  for (let i = 0; i < s.length; i++) {
-    h = (h * 131 + s.charCodeAt(i) + i) % 2147483647;
-  }
-  return Math.abs(h);
-}
-
-function mulberry32(seed) {
-  return function() {
-    let t = seed += 0x6D2B79F5;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  const CONFIG = {
+    seed: 9115,
+    clusterCount: 16,
+    clusterMinCoord: -150,
+    clusterMaxCoord: 150,
+    systemCountMin: 100,
+    systemCountMax: 150,
+    systemLocalMin: -70,
+    systemLocalMax: 70,
+    bodyLocalRadius: 14,
+    galaxyScale: 16,
+    clusterScale: 18,
+    systemScale: 22,
+    starCount: 180,
   };
-}
 
-class RNG {
-  constructor(seed) {
-    this.r = mulberry32(seed >>> 0);
-  }
-  next() {
-    return this.r();
-  }
-  int(min, max) {
-    return Math.floor(this.next() * (max - min + 1)) + min;
-  }
-  num(min, max) {
-    return this.next() * (max - min) + min;
-  }
-  chance(p) {
-    return this.next() < p;
-  }
-}
-
-function hsvToRgb(h, s, v) {
-  let r, g, b;
-  const i = Math.floor(h * 6);
-  const f = h * 6 - i;
-  const p = v * (1 - s);
-  const q = v * (1 - f * s);
-  const t = v * (1 - (1 - f) * s);
-  switch (i % 6) {
-    case 0: r = v; g = t; b = p; break;
-    case 1: r = q; g = v; b = p; break;
-    case 2: r = p; g = v; b = t; break;
-    case 3: r = p; g = q; b = v; break;
-    case 4: r = t; g = p; b = v; break;
-    case 5: r = v; g = p; b = q; break;
-  }
-  return {
-    r: Math.round(r * 255),
-    g: Math.round(g * 255),
-    b: Math.round(b * 255)
-  };
-}
-
-function rgbString(c) {
-  return `rgb(${c.r},${c.g},${c.b})`;
-}
-
-function pickSurfaceMaterial(roughness) {
-  if (roughness <= 1) return "Sand";
-  if (roughness <= 3) return "Sandstone";
-  if (roughness === 4) return "Slate";
-  return "Basalt";
-}
-
-function setUniverseSeed(seed) {
-  seed = Number(seed) || Universe.DefaultUniverseSeed;
-  if (seed !== Universe.UniverseSeed) {
-    Universe.UniverseSeed = seed;
-    Universe.CatalogByCoord = null;
-    Universe.CatalogArray = null;
-    Universe.CatalogSeed = null;
-    dprint("Universe seed set to", seed);
-  }
-}
-
-function buildCatalog() {
-  if (Universe.CatalogByCoord && Universe.CatalogArray && Universe.CatalogSeed === Universe.UniverseSeed) {
-    return [Universe.CatalogByCoord, Universe.CatalogArray];
-  }
-
-  const rng = new RNG(Universe.UniverseSeed);
-  const usedPositions = new Set();
-  const catalogByCoord = {};
-  const catalogArray = [];
-
-  const starTypes = [
-    "Red Dwarf",
-    "Yellow Star",
-    "Blue Giant",
-    "White Star",
-    "Orange Star"
+  const NAME_A = [
+    "Ash","Bel","Cor","Dal","Esh","Fyr","Gal","Hex","Iru","Jex",
+    "Kel","Lum","Mev","Nox","Orv","Pex","Qur","Rex","Syx","Tel",
+    "Ulv","Vex","Wor","Xen","Yar","Zel","Brev","Cyn","Eph","Grel",
+    "Keth","Lyv","Myr","Nev","Oph","Pral","Quil","Riv","Stel","Thar",
+    "Vor","Wyv","Dov","Frel","Hux","Zeph","Trev","Drel","Crav","Meth",
+    "Lix","Sorn","Phel","Yorv","Varn","Cres","Dax","Ulm","Ith","Jor"
   ];
 
-  const planetTypes = [
-    "Rocky",
-    "Desert",
-    "Ice",
-    "Ocean",
-    "Volcanic",
-    "Metal",
-    "Temperate",
-    "Barren"
+  const NAME_B = [
+    "al","an","el","en","ir","ix","on","or","ul","ur",
+    "ax","ex","ov","um","av","em","yr","ob","ag","ec",
+    "id","og","ud","ak","ek","ok","ar","er","ot","ut",
+    "is","as","es","os","un","il","yl","op","enx","olv"
   ];
 
-  for (let systemIndex = 1; systemIndex <= Universe.SystemCount; systemIndex++) {
-    let sx, sy, k;
+  const NAME_C = [
+    "ara","eth","ion","ova","ula","ani","eum","iro","oma","ura",
+    "ane","eis","ite","ono","uri","ora","alis","urus","aris","eon",
+    "oria","yra","elle","aris","uvis","enos","aris","une","oriax","ivia"
+  ];
+
+  const BODY_NAMES = [
+    "Platipus","Congratie","Julie","Juyna","Aurelia","Mira","Nova","Vela",
+    "Kora","Luna","Orlena","Saffy","Mallow","Iona","Tessia","Elara",
+    "Cinder","Rivie","Daphne","Nerina","Tindra","Calyx","Moxie","Anika",
+    "Sorrel","Eos","Ylva","Maren","Solene","Pavia","Liora","Zinnia",
+    "Orchid","Pax","Runa","Sora","Talia","Yuna","Zuri","Astra",
+    "Myra","Nessa","Pella","Vion","Cora","Levia","Aira","Nola"
+  ];
+
+  const BODY_SUFFIXES = ["", "", "", "", " 2", " 4", " 7", " 12", " 19", " 33", " 88", " 200", " Prime", " IV", " VII"];
+
+  const STAR_TYPES = ["Red Dwarf", "Yellow Star", "Blue Giant", "White Star", "Orange Star"];
+
+  const TERRAINS = ["Rocky", "Desert", "Ocean", "Temperate", "Barren", "Volcanic", "Frozen", "Metal"];
+
+  const bodyLetterNames = ["b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m"];
+
+  const canvas = document.getElementById("map");
+  const ctx = canvas.getContext("2d", { alpha: true });
+
+  const backBtn = document.getElementById("backBtn");
+  const teleportBtn = document.getElementById("teleportBtn");
+  const coords1El = document.getElementById("coords1");
+  const coords2El = document.getElementById("coords2");
+  const infoEl = document.getElementById("info");
+  const hintEl = document.getElementById("hint");
+
+  const state = {
+    seed: CONFIG.seed,
+    catalog: null,
+    mode: "Galaxy", // Galaxy -> Cluster -> System -> Surface
+    currentCluster: null,
+    currentSystem: null,
+    currentBody: null,
+    selectedItem: null, // { kind, object, cluster, system, body }
+    hoverItem: null,
+    cameraX: 0,
+    cameraY: 0,
+    zoom: 1,
+    mouseX: 0,
+    mouseY: 0,
+    mouseInside: false,
+    keys: { W: false, A: false, S: false, D: false },
+    stars: [],
+  };
+
+  function clamp(v, a, b) {
+    return Math.max(a, Math.min(b, v));
+  }
+
+  function fract(n) {
+    return n - Math.floor(n);
+  }
+
+  function key2(a, b) {
+    return `${a},${b}`;
+  }
+
+  function stableHash(...args) {
+    const s = args.map(v => String(v)).join("|");
+    let h = 7;
+    for (let i = 0; i < s.length; i++) {
+      h = (Math.imul(h, 131) + s.charCodeAt(i) + i) % 2147483647;
+    }
+    return Math.abs(h);
+  }
+
+  function makeRng(seed) {
+    let t = seed >>> 0;
+    const next = () => {
+      t += 0x6D2B79F5;
+      let x = t;
+      x = Math.imul(x ^ (x >>> 15), x | 1);
+      x ^= x + Math.imul(x ^ (x >>> 7), x | 61);
+      return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+    };
+
+    return {
+      next,
+      float(min = 0, max = 1) {
+        return min + next() * (max - min);
+      },
+      int(min, max) {
+        return Math.floor(this.float(min, max + 1));
+      },
+      pick(arr) {
+        return arr[this.int(0, arr.length - 1)];
+      },
+    };
+  }
+
+  function hsvToRgb(h, s, v) {
+    h = fract(h);
+    s = clamp(s, 0, 1);
+    v = clamp(v, 0, 1);
+
+    const i = Math.floor(h * 6);
+    const f = h * 6 - i;
+    const p = v * (1 - s);
+    const q = v * (1 - f * s);
+    const t = v * (1 - (1 - f) * s);
+
+    let r = 0, g = 0, b = 0;
+    switch (i % 6) {
+      case 0: r = v; g = t; b = p; break;
+      case 1: r = q; g = v; b = p; break;
+      case 2: r = p; g = v; b = t; break;
+      case 3: r = p; g = q; b = v; break;
+      case 4: r = t; g = p; b = v; break;
+      case 5: r = v; g = p; b = q; break;
+    }
+
+    return [
+      Math.round(r * 255),
+      Math.round(g * 255),
+      Math.round(b * 255),
+    ];
+  }
+
+  function hsvToCss(h, s, v) {
+    const [r, g, b] = hsvToRgb(h, s, v);
+    return `rgb(${r}, ${g}, ${b})`;
+  }
+
+  function rgbToCss(r, g, b) {
+    return `rgb(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)})`;
+  }
+
+  function chooseClusterPosition(rng, used) {
+    let x, y, k;
+    let tries = 0;
+
     do {
-      sx = rng.int(Universe.MinCoord, Universe.MaxCoord);
-      sy = rng.int(Universe.MinCoord, Universe.MaxCoord);
-      k = key2(sx, sy);
-    } while (usedPositions.has(k));
-    usedPositions.add(k);
+      tries++;
+      const angle = rng.float(0, TAU);
+      const radius = rng.float(20, 148);
 
-    const systemSeed = stableHash("system", Universe.UniverseSeed, sx, sy, systemIndex);
-    const systemRng = new RNG(systemSeed);
+      const stretchX = 1.0 + Math.sin(angle * 2) * 0.15;
+      const stretchY = 0.78 + Math.cos(angle * 3) * 0.10;
 
-    const planetCount = systemRng.int(1, 12);
-    const starType = starTypes[systemRng.int(0, starTypes.length - 1)];
-    const starColor = hsvToRgb(systemRng.next(), systemRng.num(0.25, 0.65), 1);
-    const starTemperature = Math.floor(systemRng.num(2500, 13000));
+      x = Math.floor(Math.cos(angle) * radius * stretchX);
+      y = Math.floor(Math.sin(angle) * radius * stretchY);
 
-    const bodies = [];
-    const usedLocal = new Set();
+      x = clamp(x, CONFIG.clusterMinCoord, CONFIG.clusterMaxCoord);
+      y = clamp(y, CONFIG.clusterMinCoord, CONFIG.clusterMaxCoord);
 
-    for (let bodyId = 1; bodyId <= planetCount; bodyId++) {
-      const bodySeed = stableHash("body", systemSeed, bodyId);
-      const brng = new RNG(bodySeed);
+      if (x === 0 && y === 0) x = 1;
+      k = key2(x, y);
+    } while (used[k] && tries < 300);
 
-      const bodyType = planetTypes[brng.int(0, planetTypes.length - 1)];
-      const size = brng.int(50, 170);
-      const gravity = brng.num(0.1, 2.0);
-      const roughness = brng.int(0, 5);
-      const orbitRadius = bodyId * 4 + brng.num(2, 6);
-      let angle = brng.num(0, Math.PI * 2);
+    return { x, y, k };
+  }
 
-      let localX = Math.floor(Math.cos(angle) * orbitRadius);
-      let localY = Math.floor(Math.sin(angle) * orbitRadius);
-      let localKey = key2(localX, localY);
+  function chooseLocalPosition(rng, used, minRadius, maxRadius) {
+    let x, y, k;
+    let tries = 0;
 
-      while (usedLocal.has(localKey)) {
-        angle += 0.37;
-        localX = Math.floor(Math.cos(angle) * orbitRadius);
-        localY = Math.floor(Math.sin(angle) * orbitRadius);
-        localKey = key2(localX, localY);
+    do {
+      tries++;
+      const angle = rng.float(0, TAU);
+      const radius = rng.float(minRadius, maxRadius);
+      x = Math.floor(Math.cos(angle) * radius);
+      y = Math.floor(Math.sin(angle) * radius);
+      k = key2(x, y);
+    } while (used[k] && tries < 200);
+
+    return { x, y, k };
+  }
+
+  function generateProcName(seed) {
+    const rng = makeRng(seed + 8191);
+    const a = rng.pick(NAME_A);
+    const b = rng.pick(NAME_B);
+    const c = rng.pick(NAME_C);
+    const style = rng.int(1, 4);
+    const num = rng.int(10, 9999);
+
+    if (style === 1) return a + c;
+    if (style === 2) return a + b + c;
+    if (style === 3) return `${a} ${num}`;
+    return `${a}-${num}`;
+  }
+
+  function generateBodyName(seed, usedNames) {
+    const rng = makeRng(seed + 271828);
+    const base = rng.pick(BODY_NAMES);
+    const suffix = rng.pick(BODY_SUFFIXES);
+    let name = base + suffix;
+    let tries = 0;
+
+    while (usedNames[name] && tries < 30) {
+      tries++;
+      name = `${base}${suffix}-${rng.int(2, 99)}`;
+    }
+
+    usedNames[name] = true;
+    return name;
+  }
+
+  function planetClassToColor(rng, cls, terrain) {
+    if (cls === "Gas Giant") {
+      return hsvToCss(rng.float(0.07, 0.13), rng.float(0.35, 0.75), rng.float(0.75, 1));
+    }
+    if (cls === "Ice Giant") {
+      return hsvToCss(rng.float(0.50, 0.58), rng.float(0.20, 0.55), rng.float(0.80, 1));
+    }
+
+    if (terrain === "Ocean") {
+      return hsvToCss(0.58, rng.float(0.45, 0.80), rng.float(0.70, 1));
+    }
+    if (terrain === "Temperate") {
+      return hsvToCss(rng.float(0.25, 0.42), rng.float(0.35, 0.70), rng.float(0.65, 0.95));
+    }
+    if (terrain === "Desert") {
+      return hsvToCss(rng.float(0.08, 0.12), rng.float(0.35, 0.70), rng.float(0.70, 1));
+    }
+    if (terrain === "Volcanic") {
+      return hsvToCss(rng.float(0.00, 0.04), rng.float(0.60, 0.95), rng.float(0.70, 1));
+    }
+    if (terrain === "Frozen") {
+      return hsvToCss(0.53, rng.float(0.10, 0.35), rng.float(0.85, 1));
+    }
+    if (terrain === "Metal") {
+      return hsvToCss(rng.float(0.08, 0.12), rng.float(0.05, 0.35), rng.float(0.50, 0.95));
+    }
+    if (terrain === "Barren") {
+      return hsvToCss(rng.float(0.05, 0.12), rng.float(0.12, 0.35), rng.float(0.35, 0.75));
+    }
+    return hsvToCss(rng.next(), rng.float(0.15, 0.65), rng.float(0.55, 1));
+  }
+
+  function createPlanetBody(systemSeed, bodyId, orbitRadius, starTemperature, rng) {
+    const classRoll = rng.next();
+    let cls;
+    if (classRoll < 0.68) cls = "Terrestrial";
+    else if (classRoll < 0.84) cls = "Gas Giant";
+    else cls = "Ice Giant";
+
+    let terrain = cls;
+    if (cls === "Terrestrial") {
+      terrain = rng.pick(TERRAINS);
+    }
+
+    let size;
+    if (cls === "Terrestrial") size = rng.int(25, 60);
+    else if (cls === "Gas Giant") size = rng.int(400, 1000);
+    else size = rng.int(150, 450);
+
+    let gravity;
+    if (cls === "Gas Giant") gravity = rng.float(1.8, 4.5);
+    else if (cls === "Ice Giant") gravity = rng.float(0.8, 2.8);
+    else gravity = rng.float(0.1, 2.0);
+
+    const roughness = rng.int(0, 5);
+    const temperature = Math.floor(starTemperature - (orbitRadius * 75) + rng.float(-55, 55));
+
+    let breathable = false;
+    let hasLife = false;
+    let lifeType = "None";
+
+    if (cls === "Terrestrial") {
+      breathable = (
+        (terrain === "Ocean" || terrain === "Temperate") &&
+        temperature >= 260 && temperature <= 330 &&
+        gravity >= 0.7 && gravity <= 1.4 &&
+        rng.next() > 0.30
+      );
+
+      if (breathable && rng.next() < 0.22) {
+        hasLife = true;
+        lifeType = rng.next() < 0.72 ? "Plant" : "Fungus";
+      } else if (rng.next() < 0.05 && (terrain === "Frozen" || terrain === "Volcanic")) {
+        hasLife = true;
+        lifeType = "Fungus";
       }
-      usedLocal.add(localKey);
+    }
 
-      const temperature = Math.floor(starTemperature - (orbitRadius * 85) + brng.num(-50, 50));
-      const breathable =
-        (bodyType === "Ocean" || bodyType === "Temperate") &&
-        temperature >= 260 &&
-        temperature <= 330 &&
-        gravity >= 0.7 &&
-        gravity <= 1.4 &&
-        brng.next() > 0.25;
+    let hasRings = cls !== "Terrestrial" ? rng.next() < 0.35 : terrain === "Frozen" && rng.next() < 0.15;
+    let tidallyLocked = orbitRadius <= 6 ? rng.next() < 0.80 : orbitRadius <= 10 ? rng.next() < 0.35 : rng.next() < 0.10;
 
-      let hasRings = brng.next() < 0.18;
-      if (bodyType === "Ice" && brng.next() < 0.30) {
-        hasRings = true;
+    if (cls === "Terrestrial" && terrain === "Temperate" && breathable) {
+      tidallyLocked = false;
+    }
+
+    const color = planetClassToColor(rng, cls, terrain);
+
+    return {
+      BodyID: bodyId,
+      OrbitRadius: orbitRadius,
+      Class: cls,
+      Type: terrain,
+      Size: size,
+      Color: color,
+      Gravity: gravity,
+      Roughness: roughness,
+      Temperature: temperature,
+      Breathable: breathable,
+      HasLife: hasLife,
+      LifeType: lifeType,
+      HasRings: hasRings,
+      TidallyLocked: tidallyLocked,
+    };
+  }
+
+  function buildCluster(clusterSeed, clusterX, clusterY, clusterIndex) {
+    const clusterRng = makeRng(clusterSeed);
+    const clusterName = `${generateProcName(clusterSeed)} Cluster`;
+    const clusterID = stableHash("cluster", state.seed, clusterX, clusterY, clusterIndex);
+    const systemCount = clusterRng.int(CONFIG.systemCountMin, CONFIG.systemCountMax);
+
+    const systems = [];
+    const usedSystems = {};
+
+    for (let systemIndex = 1; systemIndex <= systemCount; systemIndex++) {
+      const sysPos = chooseLocalPosition(clusterRng, usedSystems, 18, 70);
+      usedSystems[sysPos.k] = true;
+
+      const systemSeed = stableHash("system", clusterSeed, sysPos.x, sysPos.y, systemIndex);
+      const sysRng = makeRng(systemSeed);
+
+      const starType = sysRng.pick(STAR_TYPES);
+      const starColor = hsvToCss(sysRng.next(), sysRng.float(0.25, 0.65), 1);
+      const starTemperature = Math.floor(sysRng.float(2500, 13000));
+      const planetCount = sysRng.int(1, 12);
+
+      const bodies = [];
+      const usedBodies = {};
+      const usedBodyNames = {};
+
+      for (let bodyId = 1; bodyId <= planetCount; bodyId++) {
+        const bodySeed = stableHash("body", systemSeed, bodyId);
+        const bodyRng = makeRng(bodySeed);
+
+        const orbitRadius = bodyId * 4 + bodyRng.float(2, 6);
+
+        let angle = bodyRng.float(0, TAU);
+        let bx = Math.floor(Math.cos(angle) * orbitRadius);
+        let by = Math.floor(Math.sin(angle) * orbitRadius);
+        let bk = key2(bx, by);
+
+        while (usedBodies[bk]) {
+          angle += 0.37;
+          bx = Math.floor(Math.cos(angle) * orbitRadius);
+          by = Math.floor(Math.sin(angle) * orbitRadius);
+          bk = key2(bx, by);
+        }
+        usedBodies[bk] = true;
+
+        const body = createPlanetBody(systemSeed, bodyId, orbitRadius, starTemperature, bodyRng);
+        body.SystemX = bx;
+        body.SystemY = by;
+        body.Name = generateBodyName(stableHash("bodyname", systemSeed, bodyId, body.Class, body.Type, orbitRadius), usedBodyNames);
+
+        bodies.push(body);
       }
 
-      const color = hsvToRgb(brng.next(), brng.num(0.2, 0.7), brng.num(0.65, 1));
-
-      bodies.push({
-        BodyID: bodyId,
-        LocalX: localX,
-        LocalY: localY,
-        OrbitRadius: orbitRadius,
-        Type: bodyType,
-        Size: size,
-        Color: color,
-        Gravity: gravity,
-        Roughness: roughness,
-        Temperature: temperature,
-        Breathable: breathable,
-        HasRings: hasRings
+      systems.push({
+        SystemID: systemSeed,
+        Name: generateProcName(systemSeed),
+        SpaceX: sysPos.x,
+        SpaceY: sysPos.y,
+        StarType: starType,
+        StarColor: starColor,
+        StarTemperature: starTemperature,
+        PlanetCount: planetCount,
+        Bodies: bodies,
+        HasDyson: sysRng.next() < 0.03,
       });
     }
 
-    const system = {
-      SpaceX: sx,
-      SpaceY: sy,
-      SystemID: systemSeed,
-      Seed: systemSeed,
-      StarType: starType,
-      StarColor: starColor,
-      StarTemperature: starTemperature,
-      PlanetCount: planetCount,
-      Bodies: bodies
-    };
+    systems.sort((a, b) => {
+      if (a.SpaceX === b.SpaceX) return a.SpaceY - b.SpaceY;
+      return a.SpaceX - b.SpaceX;
+    });
 
-    catalogByCoord[k] = system;
-    catalogArray.push(system);
-  }
-
-  catalogArray.sort((a, b) => {
-    if (a.SpaceX === b.SpaceX) return a.SpaceY - b.SpaceY;
-    return a.SpaceX - b.SpaceX;
-  });
-
-  Universe.CatalogSeed = Universe.UniverseSeed;
-  Universe.CatalogByCoord = catalogByCoord;
-  Universe.CatalogArray = catalogArray;
-
-  dprint("Built catalog with", catalogArray.length, "systems using seed", Universe.UniverseSeed);
-  return [catalogByCoord, catalogArray];
-}
-
-function getSystemsArray() {
-  return buildCatalog()[1];
-}
-
-function getSystem(spaceX, spaceY) {
-  const catalogByCoord = buildCatalog()[0];
-  return catalogByCoord[key2(spaceX, spaceY)];
-}
-
-function findBody(system, systemX, systemY) {
-  if (!system) return null;
-  for (const body of system.Bodies) {
-    if (body.LocalX === systemX && body.LocalY === systemY) return body;
-  }
-  return null;
-}
-
-function isValidDestination(spaceX, spaceY, systemX, systemY, zone) {
-  const system = getSystem(spaceX, spaceY);
-  if (!system) return false;
-  if (zone === "F") return true;
-  if (zone === "T") return findBody(system, systemX, systemY) !== null;
-  return false;
-}
-
-function getDefaultDestination() {
-  const arr = getSystemsArray();
-  const first = arr[0];
-  if (!first) return { spaceX: 0, spaceY: 0, systemX: 0, systemY: 0, zone: "F" };
-  return { spaceX: first.SpaceX, spaceY: first.SpaceY, systemX: 0, systemY: 0, zone: "F" };
-}
-
-function getDestinationData(spaceX, spaceY, systemX, systemY, zone) {
-  const system = getSystem(spaceX, spaceY);
-  if (!system) return null;
-
-  const body = findBody(system, systemX, systemY);
-
-  if (zone === "T") {
-    if (!body) return null;
     return {
-      UniverseSeed: Universe.UniverseSeed,
-      SpaceX: spaceX,
-      SpaceY: spaceY,
-      SystemX: systemX,
-      SystemY: systemY,
-      Zone: "T",
-      SystemID: system.SystemID,
-      Seed: system.Seed,
-      CelestialBodyID: body.BodyID,
-      CelestialBodyType: 0,
-      System: system,
-      Body: body,
-      World: {
-        Color: body.Color,
-        Gravity: body.Gravity,
-        Roughness: body.Roughness
-      }
+      ClusterID: clusterID,
+      Name: clusterName,
+      ClusterX: clusterX,
+      ClusterY: clusterY,
+      SystemCount: systemCount,
+      Systems: systems,
     };
   }
 
-  return {
-    UniverseSeed: Universe.UniverseSeed,
-    SpaceX: spaceX,
-    SpaceY: spaceY,
-    SystemX: systemX,
-    SystemY: systemY,
-    Zone: "F",
-    SystemID: system.SystemID,
-    Seed: system.Seed,
-    CelestialBodyID: body ? body.BodyID : 0,
-    CelestialBodyType: 1,
-    System: system,
-    Body: body,
-    World: {
-      Color: body ? body.Color : system.StarColor,
-      Gravity: 0,
-      Roughness: 0
+  function buildCatalog() {
+    if (state.catalog && state.catalog.seed === state.seed) {
+      return state.catalog;
     }
-  };
-}
 
-function canvasSize() {
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
-}
-window.addEventListener("resize", canvasSize);
-canvasSize();
+    const rng = makeRng(state.seed);
+    const usedClusters = {};
+    const clusters = [];
+    const byCluster = {};
 
-let mode = "Galaxy";
-let cameraX = 0;
-let cameraY = 0;
-let zoom = 1;
+    for (let i = 1; i <= CONFIG.clusterCount; i++) {
+      const pos = chooseClusterPosition(rng, usedClusters);
+      usedClusters[pos.k] = true;
 
-const keys = { w: false, a: false, s: false, d: false };
-
-let selectedSystem = null;
-let selectedBody = null;
-let selectedSpaceX = 0;
-let selectedSpaceY = 0;
-let selectedSystemX = 0;
-let selectedSystemY = 0;
-let selectedZone = "F";
-
-const world = getDefaultDestination();
-selectedSpaceX = world.spaceX;
-selectedSpaceY = world.spaceY;
-selectedSystem = getSystem(selectedSpaceX, selectedSpaceY);
-cameraX = selectedSpaceX;
-cameraY = selectedSpaceY;
-
-const markers = [];
-let selectedMarker = null;
-
-function showSystemInfo(system) {
-  if (!system) {
-    info.textContent = "No system.";
-    return;
-  }
-
-  info.textContent = [
-    `System [${system.SpaceX}, ${system.SpaceY}]`,
-    `Star Type: ${system.StarType}`,
-    `Star Color: rgb(${system.StarColor.r}, ${system.StarColor.g}, ${system.StarColor.b})`,
-    `Planets: ${system.PlanetCount}`,
-    `Star Temp: ${system.StarTemperature} K`,
-    `System ID: ${system.SystemID}`,
-    `Seed: ${system.Seed}`
-  ].join("\n");
-}
-
-function showBodyInfo(body) {
-  if (!body) {
-    info.textContent = "No celestial body.";
-    return;
-  }
-
-  info.textContent = [
-    `Body ID: ${body.BodyID}`,
-    `Type: ${body.Type}`,
-    `Size: ${body.Size}`,
-    `Has Rings: ${body.HasRings ? "Yes" : "No"}`,
-    `Temperature: ${body.Temperature} K`,
-    `Breathable: ${body.Breathable ? "Yes" : "No"}`,
-    `Gravity: ${body.Gravity.toFixed(2)}`,
-    `Orbit: ${body.OrbitRadius} PU`
-  ].join("\n");
-}
-
-function updateCoords2() {
-  if (mode === "Galaxy") {
-    coords2.textContent = `[${selectedSpaceX}, ${selectedSpaceY} : 0, 0]`;
-  } else {
-    coords2.textContent = `[${selectedSpaceX}, ${selectedSpaceY} : ${selectedSystemX}, ${selectedSystemY}]`;
-  }
-}
-
-function clearMarkers() {
-  for (const m of markers) {
-    if (m.el && m.el.parentNode) m.el.parentNode.removeChild(m.el);
-    if (m.ring && m.ring.parentNode) m.ring.parentNode.removeChild(m.ring);
-  }
-  markers.length = 0;
-}
-
-function createRingElement(parent, x, y, size) {
-  const div = document.createElement("div");
-  div.style.position = "absolute";
-  div.style.left = `${x - size / 2}px`;
-  div.style.top = `${y - size / 2}px`;
-  div.style.width = `${size}px`;
-  div.style.height = `${size}px`;
-  div.style.borderRadius = "999px";
-  div.style.border = "2px solid rgba(255,255,255,0.9)";
-  div.style.boxShadow = "0 0 12px rgba(255,255,255,0.35)";
-  div.style.pointerEvents = "none";
-  parent.appendChild(div);
-  return div;
-}
-
-function createMarker(x, y, size, color, text, data) {
-  const el = document.createElement("div");
-  el.style.position = "absolute";
-  el.style.width = `${size}px`;
-  el.style.height = `${size}px`;
-  el.style.borderRadius = "999px";
-  el.style.background = color;
-  el.style.left = "0px";
-  el.style.top = "0px";
-  el.style.transform = "translate(-50%, -50%)";
-  el.style.cursor = "pointer";
-  el.style.pointerEvents = "auto";
-  el.style.boxShadow = "0 0 8px rgba(0,0,0,0.7)";
-  if (text) el.textContent = text;
-  el.style.display = "flex";
-  el.style.alignItems = "center";
-  el.style.justifyContent = "center";
-  el.style.color = "white";
-  el.style.fontSize = "10px";
-  el.style.userSelect = "none";
-
-  const ring = document.createElement("div");
-  ring.style.position = "absolute";
-  ring.style.width = `${size + 16}px`;
-  ring.style.height = `${size + 16}px`;
-  ring.style.borderRadius = "999px";
-  ring.style.border = "2px solid transparent";
-  ring.style.pointerEvents = "none";
-  ring.style.left = `${x - (size + 16) / 2}px`;
-  ring.style.top = `${y - (size + 16) / 2}px`;
-  ring.style.display = "none";
-  canvas.parentElement.appendChild(ring);
-
-  canvas.parentElement.appendChild(el);
-
-  const marker = { x, y, size, color, el, ring, data };
-  markers.push(marker);
-  return marker;
-}
-
-function currentCenter() {
-  return {
-    x: canvas.width / 2,
-    y: canvas.height / 2
-  };
-}
-
-function worldToScreen(wx, wy) {
-  const c = currentCenter();
-  const tile = (mode === "Galaxy" ? 16 : 18) * zoom;
-  return {
-    x: c.x + (wx - cameraX) * tile,
-    y: c.y + (-wy + cameraY) * tile
-  };
-}
-
-function hoverWorldCoords() {
-  const rect = canvas.getBoundingClientRect();
-  const mx = mouse.x - rect.left;
-  const my = mouse.y - rect.top;
-
-  if (mx < 0 || my < 0 || mx > rect.width || my > rect.height) return null;
-
-  const tile = (mode === "Galaxy" ? 16 : 18) * zoom;
-  const gx = Math.round(cameraX + ((mx - rect.width * 0.5) / tile));
-  const gy = Math.round(cameraY - ((my - rect.height * 0.5) / tile));
-  return { x: gx, y: gy };
-}
-
-function setSelectedHalo(marker) {
-  selectedMarker = marker;
-  for (const m of markers) {
-    if (m.ring) m.ring.style.display = "none";
-  }
-  if (marker && marker.ring) {
-    marker.ring.style.display = "block";
-  }
-}
-
-function buildGalaxyMarkers() {
-  clearMarkers();
-  const systems = getSystemsArray();
-
-  for (const system of systems) {
-    const pos = worldToScreen(system.SpaceX, system.SpaceY);
-    const el = document.createElement("div");
-    el.style.position = "absolute";
-    el.style.left = `${pos.x}px`;
-    el.style.top = `${pos.y}px`;
-    el.style.width = "12px";
-    el.style.height = "12px";
-    el.style.borderRadius = "999px";
-    el.style.background = rgbString(system.StarColor);
-    el.style.transform = "translate(-50%, -50%)";
-    el.style.cursor = "pointer";
-    el.style.pointerEvents = "auto";
-    el.style.boxShadow = "0 0 10px rgba(0,0,0,0.7)";
-    canvas.parentElement.appendChild(el);
-
-    const ring = createRingElement(canvas.parentElement, pos.x, pos.y, 24);
-    ring.style.display = "none";
-
-    const marker = { x: system.SpaceX, y: system.SpaceY, el, ring, data: system, kind: "system" };
-    markers.push(marker);
-
-    el.addEventListener("click", () => {
-      selectedSystem = system;
-      selectedBody = null;
-      selectedSpaceX = system.SpaceX;
-      selectedSpaceY = system.SpaceY;
-      selectedSystemX = 0;
-      selectedSystemY = 0;
-      selectedZone = "F";
-      cameraX = 0;
-      cameraY = 0;
-      mode = "System";
-      showSystemInfo(system);
-      rebuildView();
-    });
-
-    el.addEventListener("contextmenu", (e) => {
-      e.preventDefault();
-      showSystemInfo(system);
-    });
-
-    el.addEventListener("auxclick", (e) => {
-      if (e.button === 1) {
-        selectedSystem = system;
-        selectedBody = null;
-        selectedSpaceX = system.SpaceX;
-        selectedSpaceY = system.SpaceY;
-        selectedSystemX = 0;
-        selectedSystemY = 0;
-        selectedZone = "F";
-        setSelectedHalo(marker);
-        updateCoords2();
-      }
-    });
-  }
-
-  showSystemInfo(selectedSystem);
-  updateCoords2();
-  dprint("Galaxy markers built:", systems.length);
-}
-
-function buildSystemMarkers() {
-  clearMarkers();
-  if (!selectedSystem) return;
-
-  const c = currentCenter();
-
-  const star = document.createElement("div");
-  star.style.position = "absolute";
-  star.style.left = `${c.x}px`;
-  star.style.top = `${c.y}px`;
-  star.style.width = "18px";
-  star.style.height = "18px";
-  star.style.borderRadius = "999px";
-  star.style.background = rgbString(selectedSystem.StarColor);
-  star.style.transform = "translate(-50%, -50%)";
-  star.style.cursor = "pointer";
-  star.style.pointerEvents = "auto";
-  star.style.boxShadow = "0 0 14px rgba(255,255,255,0.9)";
-  star.textContent = "★";
-  star.style.fontSize = "12px";
-  star.style.display = "flex";
-  star.style.alignItems = "center";
-  star.style.justifyContent = "center";
-  star.style.color = "white";
-  canvas.parentElement.appendChild(star);
-
-  const starRing = createRingElement(canvas.parentElement, c.x, c.y, 36);
-  const starMarker = { x: 0, y: 0, el: star, ring: starRing, data: selectedSystem, kind: "star" };
-  markers.push(starMarker);
-
-  star.addEventListener("click", () => {
-    showSystemInfo(selectedSystem);
-  });
-
-  star.addEventListener("contextmenu", (e) => {
-    e.preventDefault();
-    showSystemInfo(selectedSystem);
-  });
-
-  star.addEventListener("auxclick", (e) => {
-    if (e.button === 1) {
-      selectedSpaceX = selectedSystem.SpaceX;
-      selectedSpaceY = selectedSystem.SpaceY;
-      selectedSystemX = 0;
-      selectedSystemY = 0;
-      selectedZone = "F";
-      setSelectedHalo(starMarker);
-      updateCoords2();
-      showSystemInfo(selectedSystem);
+      const clusterSeed = stableHash("clusterSeed", state.seed, pos.x, pos.y, i);
+      const cluster = buildCluster(clusterSeed, pos.x, pos.y, i);
+      clusters.push(cluster);
+      byCluster[key2(pos.x, pos.y)] = cluster;
     }
-  });
 
-  for (const body of selectedSystem.Bodies) {
-    const pos = worldToScreen(body.LocalX, body.LocalY);
-    const size = Math.max(10, Math.min(24, Math.floor(body.Size * 0.14)));
-
-    const el = document.createElement("div");
-    el.style.position = "absolute";
-    el.style.left = `${pos.x}px`;
-    el.style.top = `${pos.y}px`;
-    el.style.width = `${size}px`;
-    el.style.height = `${size}px`;
-    el.style.borderRadius = "999px";
-    el.style.background = rgbString(body.Color);
-    el.style.transform = "translate(-50%, -50%)";
-    el.style.cursor = "pointer";
-    el.style.pointerEvents = "auto";
-    el.style.boxShadow = "0 0 10px rgba(0,0,0,0.75)";
-    canvas.parentElement.appendChild(el);
-
-    const ring = createRingElement(canvas.parentElement, pos.x, pos.y, size + 16);
-    ring.style.display = "none";
-
-    const marker = { x: body.LocalX, y: body.LocalY, el, ring, data: body, kind: "body" };
-    markers.push(marker);
-
-    el.addEventListener("click", () => {
-      showBodyInfo(body);
+    clusters.sort((a, b) => {
+      if (a.ClusterX === b.ClusterX) return a.ClusterY - b.ClusterY;
+      return a.ClusterX - b.ClusterX;
     });
 
-    el.addEventListener("contextmenu", (e) => {
-      e.preventDefault();
-      showBodyInfo(body);
-    });
+    state.catalog = {
+      seed: state.seed,
+      clusters,
+      byCluster,
+    };
 
-    el.addEventListener("auxclick", (e) => {
-      if (e.button === 1) {
-        selectedBody = body;
-        selectedSpaceX = selectedSystem.SpaceX;
-        selectedSpaceY = selectedSystem.SpaceY;
-        selectedSystemX = body.LocalX;
-        selectedSystemY = body.LocalY;
-        selectedZone = "T";
-        setSelectedHalo(marker);
-        updateCoords2();
-        showBodyInfo(body);
+    return state.catalog;
+  }
+
+  function generateBackgroundStars() {
+    const rng = makeRng(stableHash("background", state.seed));
+    const stars = [];
+    for (let i = 0; i < CONFIG.starCount; i++) {
+      stars.push({
+        x: rng.next(),
+        y: rng.next(),
+        r: rng.float(0.5, 1.8),
+        a: rng.float(0.20, 0.95),
+      });
+    }
+    state.stars = stars;
+  }
+
+  function getModeScale() {
+    if (state.mode === "Galaxy") return CONFIG.galaxyScale * state.zoom;
+    if (state.mode === "Cluster") return CONFIG.clusterScale * state.zoom;
+    if (state.mode === "System") return CONFIG.systemScale * state.zoom;
+    return 1;
+  }
+
+  function getCanvasSize() {
+    const rect = canvas.getBoundingClientRect();
+    return { width: rect.width, height: rect.height, rect };
+  }
+
+  function resizeCanvas() {
+    const { width, height } = getCanvasSize();
+    const dpr = Math.max(window.devicePixelRatio || 1, 1);
+    canvas.width = Math.floor(width * dpr);
+    canvas.height = Math.floor(height * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    generateBackgroundStars();
+  }
+
+  function worldToScreen(wx, wy) {
+    const { width, height } = getCanvasSize();
+    const scale = getModeScale();
+    const cx = width * 0.5;
+    const cy = height * 0.5;
+    const x = cx + ((wx - state.cameraX) * scale);
+    const y = cy + ((-wy + state.cameraY) * scale);
+    return { x, y };
+  }
+
+  function screenToWorld(sx, sy) {
+    const { width, height } = getCanvasSize();
+    const scale = getModeScale();
+    const wx = state.cameraX + ((sx - width * 0.5) / scale);
+    const wy = state.cameraY - ((sy - height * 0.5) / scale);
+    return { x: wx, y: wy };
+  }
+
+  function getCurrentPathText() {
+    const c = state.currentCluster;
+    const s = state.currentSystem;
+    const b = state.currentBody;
+
+    if (state.mode === "Galaxy") {
+      return c ? `Cluster: [${c.ClusterX}, ${c.ClusterY}]` : "Cluster: [?, ?]";
+    }
+    if (state.mode === "Cluster") {
+      return c && s
+        ? `Cluster: [${c.ClusterX}, ${c.ClusterY}]  |  System: [${s.SpaceX}, ${s.SpaceY}]`
+        : "Cluster / System: [?, ?]";
+    }
+    if (state.mode === "System") {
+      return c && s && b
+        ? `Cluster: [${c.ClusterX}, ${c.ClusterY}]  |  System: [${s.SpaceX}, ${s.SpaceY}]  |  Body: [${b.SystemX}, ${b.SystemY}]`
+        : "Cluster / System / Body: [?, ?]";
+    }
+    return b ? `Surface: ${b.Name}` : "Surface";
+  }
+
+  function getMarkerInfo(item) {
+    if (!item) {
+      return "Right click a cluster, system, or body.";
+    }
+
+    if (item.kind === "cluster") {
+      const c = item.object;
+      return [
+        c.Name,
+        `Systems: ${c.SystemCount}`,
+        `Cluster ID: ${c.ClusterID}`,
+        `Coords: [${c.ClusterX}, ${c.ClusterY}]`,
+      ].join("\n");
+    }
+
+    if (item.kind === "system") {
+      const s = item.object;
+      return [
+        s.Name,
+        `Star Type: ${s.StarType}`,
+        `Planets: ${s.PlanetCount}`,
+        `Star Temp: ${s.StarTemperature} K`,
+        `Dyson: ${s.HasDyson ? "Yes" : "No"}`,
+        `System ID: ${s.SystemID}`,
+        `Coords: [${s.SpaceX}, ${s.SpaceY}]`,
+      ].join("\n");
+    }
+
+    if (item.kind === "body") {
+      const b = item.object;
+      return [
+        b.Name,
+        `Class: ${b.Class}`,
+        `Type: ${b.Type}`,
+        `Size: ${b.Size}`,
+        `Gravity: ${b.Gravity.toFixed(2)}`,
+        `Orbit: ${Math.round(b.OrbitRadius)} PU`,
+        `Temp: ${b.Temperature} K`,
+        `Breathable: ${b.Breathable ? "Yes" : "No"}`,
+        `Tidally Locked: ${b.TidallyLocked ? "Yes" : "No"}`,
+        `Rings: ${b.HasRings ? "Yes" : "No"}`,
+        `Life: ${b.HasLife ? b.LifeType : "None"}`,
+      ].join("\n");
+    }
+
+    return "Right click a cluster, system, or body.";
+  }
+
+  function setSelection(item) {
+    state.selectedItem = item;
+    infoEl.textContent = getMarkerInfo(item);
+  }
+
+  function setViewGalaxy() {
+    state.mode = "Galaxy";
+    state.zoom = 1;
+    state.currentSystem = null;
+    state.currentBody = null;
+    if (state.currentCluster) {
+      state.cameraX = state.currentCluster.ClusterX;
+      state.cameraY = state.currentCluster.ClusterY;
+    } else {
+      state.cameraX = 0;
+      state.cameraY = 0;
+    }
+    if (state.currentCluster) {
+      setSelection({ kind: "cluster", object: state.currentCluster });
+    }
+  }
+
+  function setViewCluster(cluster) {
+    if (!cluster) return;
+    state.mode = "Cluster";
+    state.currentCluster = cluster;
+    state.currentSystem = cluster.Systems[0] || null;
+    state.currentBody = null;
+    state.zoom = 1;
+    state.cameraX = 0;
+    state.cameraY = 0;
+    setSelection({ kind: "cluster", object: cluster });
+  }
+
+  function setViewSystem(system, cluster) {
+    if (!system) return;
+    state.mode = "System";
+    if (cluster) state.currentCluster = cluster;
+    state.currentSystem = system;
+    state.currentBody = null;
+    state.zoom = 1;
+    state.cameraX = 0;
+    state.cameraY = 0;
+    setSelection({ kind: "system", object: system });
+  }
+
+  function setViewSurface(body, system, cluster) {
+    if (!body) return;
+    state.mode = "Surface";
+    if (cluster) state.currentCluster = cluster;
+    if (system) state.currentSystem = system;
+    state.currentBody = body;
+    state.zoom = 1;
+    state.cameraX = 0;
+    state.cameraY = 0;
+    setSelection({ kind: "body", object: body });
+  }
+
+  function openItem(item) {
+    if (!item) return;
+
+    if (item.kind === "cluster") {
+      setViewCluster(item.object);
+      return;
+    }
+
+    if (item.kind === "system") {
+      setViewSystem(item.object, item.cluster || state.currentCluster);
+      return;
+    }
+
+    if (item.kind === "body") {
+      setViewSurface(item.object, item.system || state.currentSystem, item.cluster || state.currentCluster);
+    }
+  }
+
+  function teleportToSelection() {
+    if (!state.selectedItem) return;
+    openItem(state.selectedItem);
+  }
+
+  function getVisibleMarkers() {
+    const markers = [];
+
+    if (state.mode === "Galaxy") {
+      for (const cluster of state.catalog.clusters) {
+        markers.push({
+          kind: "cluster",
+          object: cluster,
+          wx: cluster.ClusterX,
+          wy: cluster.ClusterY,
+          r: clamp(9 + cluster.SystemCount * 0.04, 9, 18),
+          color: hsvToCss(fract((cluster.ClusterID % 1000) / 1000), 0.65, 1),
+          label: cluster.Name,
+        });
       }
-    });
+      return markers;
+    }
+
+    if (state.mode === "Cluster") {
+      const cluster = state.currentCluster;
+      if (!cluster) return markers;
+
+      for (const system of cluster.Systems) {
+        markers.push({
+          kind: "system",
+          object: system,
+          cluster,
+          wx: system.SpaceX,
+          wy: system.SpaceY,
+          r: 6,
+          color: system.StarColor,
+          label: system.Name,
+        });
+      }
+      return markers;
+    }
+
+    if (state.mode === "System") {
+      const cluster = state.currentCluster;
+      const system = state.currentSystem;
+      if (!system) return markers;
+
+      markers.push({
+        kind: "system",
+        object: system,
+        cluster,
+        wx: 0,
+        wy: 0,
+        r: 14,
+        color: system.StarColor,
+        label: system.Name,
+        isStar: true,
+      });
+
+      for (const body of system.Bodies) {
+        markers.push({
+          kind: "body",
+          object: body,
+          cluster,
+          system,
+          wx: body.SystemX,
+          wy: body.SystemY,
+          r: clamp(body.Size / 24, 6, 26),
+          color: body.Color,
+          label: body.Name,
+        });
+      }
+      return markers;
+    }
+
+    if (state.mode === "Surface") {
+      const body = state.currentBody;
+      if (!body) return markers;
+      markers.push({
+        kind: "body",
+        object: body,
+        cluster: state.currentCluster,
+        system: state.currentSystem,
+        wx: 0,
+        wy: 0,
+        r: 0,
+        color: body.Color,
+        label: body.Name,
+      });
+    }
+
+    return markers;
   }
 
-  showSystemInfo(selectedSystem);
-  updateCoords2();
-  dprint("System markers built for:", selectedSystem.SpaceX, selectedSystem.SpaceY);
-}
+  function findMarkerAtScreen(x, y, markers) {
+    let best = null;
+    let bestDist = Infinity;
 
-function rebuildView() {
-  if (mode === "Galaxy") {
-    buildGalaxyMarkers();
-  } else {
-    buildSystemMarkers();
+    for (const m of markers) {
+      const dx = x - m.sx;
+      const dy = y - m.sy;
+      const dist = Math.hypot(dx, dy);
+      const hitRadius = (m.r || 8) + 8;
+
+      if (dist <= hitRadius && dist < bestDist) {
+        best = m;
+        bestDist = dist;
+      }
+    }
+
+    return best;
   }
-  updateSelectionStyles();
-}
 
-function updateSelectionStyles() {
-  for (const m of markers) {
-    if (m.kind === "system") {
-      if (mode === "Galaxy" && selectedSystem === m.data) {
-        m.el.style.width = "16px";
-        m.el.style.height = "16px";
-        m.ring.style.display = "block";
+  function drawBackground(width, height) {
+    const g = ctx.createRadialGradient(
+      width * 0.5, height * 0.5, 0,
+      width * 0.5, height * 0.5, Math.max(width, height) * 0.8
+    );
+    g.addColorStop(0, "#0e1020");
+    g.addColorStop(0.6, "#05060a");
+    g.addColorStop(1, "#020203");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, width, height);
+
+    for (const s of state.stars) {
+      const x = s.x * width;
+      const y = s.y * height;
+      ctx.globalAlpha = s.a;
+      ctx.fillStyle = "#ffffff";
+      ctx.beginPath();
+      ctx.arc(x, y, s.r, 0, TAU);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawTextWithStroke(text, x, y, size = 12, align = "center", fill = "#ffffff") {
+    ctx.font = `${size}px Arial, Helvetica, sans-serif`;
+    ctx.textAlign = align;
+    ctx.textBaseline = "middle";
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = "rgba(0,0,0,0.8)";
+    ctx.fillStyle = fill;
+    ctx.strokeText(text, x, y);
+    ctx.fillText(text, x, y);
+  }
+
+  function drawHalo(x, y, r, color = "rgba(255,255,140,0.95)") {
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, TAU);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+  }
+
+  function drawClusterView(markers, hovered, width, height) {
+    for (const m of markers) {
+      const size = m.r * 2;
+      ctx.beginPath();
+      ctx.arc(m.sx, m.sy, m.r, 0, TAU);
+      ctx.fillStyle = m.color;
+      ctx.fill();
+
+      ctx.strokeStyle = "rgba(0,0,0,0.65)";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      if (m === hovered || (state.selectedItem && state.selectedItem.kind === "cluster" && state.selectedItem.object === m.object)) {
+        drawHalo(m.sx, m.sy, m.r + 8);
+      }
+
+      if (m === hovered || (state.selectedItem && state.selectedItem.kind === "cluster" && state.selectedItem.object === m.object)) {
+        drawTextWithStroke(m.label, m.sx, m.sy + m.r + 12, 12, "center");
+      }
+    }
+  }
+
+  function drawClusterSystemView(markers, hovered) {
+    const cluster = state.currentCluster;
+    if (!cluster) return;
+
+    const star = markers.find(m => m.kind === "system" && m.isStar);
+    if (star) {
+      ctx.beginPath();
+      ctx.arc(star.sx, star.sy, 18, 0, TAU);
+      ctx.fillStyle = star.color;
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.arc(star.sx, star.sy, 30, 0, TAU);
+      ctx.strokeStyle = "rgba(255,255,255,0.2)";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      if (hovered === star || (state.selectedItem && state.selectedItem.kind === "system" && state.selectedItem.object === star.object)) {
+        drawHalo(star.sx, star.sy, 24, "rgba(255,255,255,0.95)");
+        drawTextWithStroke(star.label, star.sx, star.sy - 28, 12, "center");
+      }
+    }
+
+    for (const m of markers) {
+      if (m.isStar) continue;
+      ctx.beginPath();
+      ctx.arc(m.sx, m.sy, m.r, 0, TAU);
+      ctx.fillStyle = m.color;
+      ctx.fill();
+
+      ctx.strokeStyle = "rgba(0,0,0,0.65)";
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+
+      if (hovered === m || (state.selectedItem && state.selectedItem.kind === "system" && state.selectedItem.object === m.object)) {
+        drawHalo(m.sx, m.sy, m.r + 7);
+        drawTextWithStroke(m.label, m.sx, m.sy + m.r + 12, 12, "center");
+      }
+    }
+  }
+
+  function drawSystemView(markers, hovered) {
+    const system = state.currentSystem;
+    if (!system) return;
+
+    const star = markers.find(m => m.isStar);
+    if (star) {
+      const glow = ctx.createRadialGradient(star.sx, star.sy, 0, star.sx, star.sy, 60);
+      glow.addColorStop(0, "rgba(255,255,255,0.45)");
+      glow.addColorStop(0.2, star.color);
+      glow.addColorStop(1, "rgba(255,255,255,0)");
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(star.sx, star.sy, 60, 0, TAU);
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.arc(star.sx, star.sy, 14, 0, TAU);
+      ctx.fillStyle = star.color;
+      ctx.fill();
+
+      drawTextWithStroke(system.Name, star.sx, star.sy - 28, 13, "center");
+
+      if (hovered === star || (state.selectedItem && state.selectedItem.kind === "system" && state.selectedItem.object === star.object)) {
+        drawHalo(star.sx, star.sy, 20, "rgba(255,255,255,0.95)");
+      }
+    }
+
+    for (const body of system.Bodies) {
+      const orbitPx = body.OrbitRadius * getModeScale();
+      ctx.beginPath();
+      ctx.arc(star.sx, star.sy, orbitPx, 0, TAU);
+      ctx.strokeStyle = "rgba(255,255,255,0.05)";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+
+    for (const m of markers) {
+      if (m.isStar) continue;
+
+      ctx.beginPath();
+      ctx.arc(m.sx, m.sy, m.r, 0, TAU);
+      ctx.fillStyle = m.color;
+      ctx.fill();
+
+      ctx.strokeStyle = "rgba(0,0,0,0.65)";
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+
+      if (hovered === m || (state.selectedItem && state.selectedItem.kind === "body" && state.selectedItem.object === m.object)) {
+        drawHalo(m.sx, m.sy, m.r + 7);
+        drawTextWithStroke(m.label, m.sx, m.sy + m.r + 12, 12, "center");
+      }
+    }
+  }
+
+  function shadeHexFromCss(css, amount) {
+    // Fallback shade for surface view: simple overlay, not exact color parsing.
+    return css;
+  }
+
+  function drawSurfaceView(width, height) {
+    const body = state.currentBody;
+    if (!body) return;
+
+    const bg = ctx.createRadialGradient(width * 0.5, height * 0.5, 0, width * 0.5, height * 0.5, Math.max(width, height) * 0.8);
+    bg.addColorStop(0, "#11131e");
+    bg.addColorStop(1, "#05060a");
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, width, height);
+
+    const cx = width * 0.5;
+    const cy = height * 0.52;
+    const r = Math.min(width, height) * 0.27;
+
+    if (body.HasRings) {
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(-0.35);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, r * 1.55, r * 0.55, 0, 0, TAU);
+      ctx.strokeStyle = "rgba(255,255,255,0.18)";
+      ctx.lineWidth = 18;
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    const sphere = ctx.createRadialGradient(cx - r * 0.30, cy - r * 0.35, r * 0.12, cx, cy, r);
+    sphere.addColorStop(0, "rgba(255,255,255,0.25)");
+    sphere.addColorStop(0.35, body.Color);
+    sphere.addColorStop(1, "rgba(0,0,0,0.45)");
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, TAU);
+    ctx.fillStyle = body.Color;
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, TAU);
+    ctx.fillStyle = sphere;
+    ctx.fill();
+
+    // Day / night split to suggest tidally locked worlds.
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, TAU);
+    ctx.clip();
+    const shadow = ctx.createLinearGradient(cx - r, cy, cx + r, cy);
+    shadow.addColorStop(0, body.TidallyLocked ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.10)");
+    shadow.addColorStop(0.45, "rgba(0,0,0,0.05)");
+    shadow.addColorStop(1, "rgba(0,0,0,0.55)");
+    ctx.fillStyle = shadow;
+    ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+    ctx.restore();
+
+    drawTextWithStroke(body.Name, cx, cy - r - 24, 18, "center");
+    drawTextWithStroke(body.Type + " world", cx, cy - r - 2, 12, "center", "rgba(255,255,255,0.9)");
+    drawTextWithStroke("Surface View", cx, height - 28, 12, "center", "rgba(255,255,255,0.75)");
+  }
+
+  function updateUiTexts() {
+    coords2El.textContent = getCurrentPathText();
+
+    if (state.hoverItem) {
+      const item = state.hoverItem;
+      if (item.kind === "cluster") {
+        coords1El.textContent = `[${item.object.ClusterX}, ${item.object.ClusterY}]`;
+      } else if (item.kind === "system") {
+        coords1El.textContent = state.mode === "Galaxy"
+          ? `[${item.object.SpaceX}, ${item.object.SpaceY}]`
+          : `[${item.object.SpaceX}, ${item.object.SpaceY}]`;
+      } else if (item.kind === "body") {
+        coords1El.textContent = `[${item.object.SystemX}, ${item.object.SystemY}]`;
       } else {
-        m.el.style.width = "12px";
-        m.el.style.height = "12px";
+        coords1El.textContent = "[?, ?]";
       }
-    } else if (m.kind === "body") {
-      if (selectedBody === m.data) {
-        m.ring.style.display = "block";
-      } else if (selectedMarker !== m) {
-        m.ring.style.display = "none";
-      }
-    } else if (m.kind === "star") {
-      if (selectedMarker === m) {
-        m.ring.style.display = "block";
-      } else if (selectedMarker !== m) {
-        m.ring.style.display = "none";
-      }
-    }
-  }
-}
-
-function refreshMarkerPositions() {
-  for (const m of markers) {
-    const pos = worldToScreen(m.x, m.y);
-    m.el.style.left = `${pos.x}px`;
-    m.el.style.top = `${pos.y}px`;
-    if (m.ring) {
-      const size = m.kind === "system" ? 24 : m.kind === "star" ? 36 : Math.max(20, Math.min(40, Math.floor(m.data.Size * 0.14) + 16));
-      m.ring.style.left = `${pos.x - size / 2}px`;
-      m.ring.style.top = `${pos.y - size / 2}px`;
-      m.ring.style.width = `${size}px`;
-      m.ring.style.height = `${size}px`;
-    }
-  }
-  updateSelectionStyles();
-}
-
-function syncFromCurrentSelection() {
-  const currentSystem = getSystem(selectedSpaceX, selectedSpaceY) || getSystemsArray()[0];
-  selectedSystem = currentSystem;
-
-  if (selectedSystem) {
-    selectedSpaceX = selectedSystem.SpaceX;
-    selectedSpaceY = selectedSystem.SpaceY;
-  }
-
-  if (selectedZone === "T" && selectedSystem) {
-    const body = findBody(selectedSystem, selectedSystemX, selectedSystemY);
-    if (body) {
-      selectedBody = body;
     } else {
-      selectedBody = null;
-      selectedZone = "F";
-      selectedSystemX = 0;
-      selectedSystemY = 0;
+      coords1El.textContent = "[?, ?]";
     }
-  } else {
-    selectedBody = null;
-  }
 
-  if (selectedSystem) {
-    cameraX = selectedSystem.SpaceX;
-    cameraY = selectedSystem.SpaceY;
-  }
-
-  updateCoords2();
-}
-
-function sendTeleport() {
-  const payload = {
-    UniverseSeed: Universe.UniverseSeed,
-    SpaceX: selectedSpaceX,
-    SpaceY: selectedSpaceY,
-    SystemX: selectedSystemX,
-    SystemY: selectedSystemY,
-    Zone: selectedZone
-  };
-
-  if (!isValidDestination(payload.SpaceX, payload.SpaceY, payload.SystemX, payload.SystemY, payload.Zone)) {
-    info.textContent = "Invalid destination.";
-    return;
-  }
-
-  console.log("[Map] Teleport request:", payload.SpaceX, payload.SpaceY, payload.SystemX, payload.SystemY, payload.Zone);
-  dprint("Teleport payload:", payload);
-}
-
-backBtn.addEventListener("click", () => {
-  mode = "Galaxy";
-  cameraX = selectedSpaceX;
-  cameraY = selectedSpaceY;
-  selectedMarker = null;
-  showSystemInfo(selectedSystem);
-  rebuildView();
-});
-
-teleportBtn.addEventListener("click", () => {
-  sendTeleport();
-});
-
-let mouse = { x: 0, y: 0 };
-window.addEventListener("mousemove", (e) => {
-  mouse.x = e.clientX;
-  mouse.y = e.clientY;
-});
-
-window.addEventListener("keydown", (e) => {
-  if (e.key.toLowerCase() === "w") keys.w = true;
-  if (e.key.toLowerCase() === "a") keys.a = true;
-  if (e.key.toLowerCase() === "s") keys.s = true;
-  if (e.key.toLowerCase() === "d") keys.d = true;
-  if (e.key.toLowerCase() === "m") {
-    canvas.style.display = canvas.style.display === "none" ? "block" : "none";
-  }
-});
-
-window.addEventListener("keyup", (e) => {
-  if (e.key.toLowerCase() === "w") keys.w = false;
-  if (e.key.toLowerCase() === "a") keys.a = false;
-  if (e.key.toLowerCase() === "s") keys.s = false;
-  if (e.key.toLowerCase() === "d") keys.d = false;
-});
-
-canvas.addEventListener("wheel", (e) => {
-  e.preventDefault();
-  zoom = Math.max(0.5, Math.min(3, zoom + (e.deltaY < 0 ? 0.12 : -0.12)));
-  refreshMarkerPositions();
-}, { passive: false });
-
-canvas.addEventListener("mousemove", () => {
-  const hover = hoverWorldCoords();
-  if (!hover) {
-    coords1.textContent = "[?, ? : ?, ?]";
-    return;
-  }
-
-  if (mode === "Galaxy") {
-    coords1.textContent = `[${hover.x}, ${hover.y} : 0, 0]`;
-  } else {
-    coords1.textContent = `[${selectedSpaceX}, ${selectedSpaceY} : ${hover.x}, ${hover.y}]`;
-  }
-});
-
-canvas.addEventListener("mouseleave", () => {
-  coords1.textContent = "[?, ? : ?, ?]";
-});
-
-function drawGrid() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  const c = currentCenter();
-  const tile = (mode === "Galaxy" ? 16 : 18) * zoom;
-  const gridRange = mode === "Galaxy" ? 100 : 40;
-
-  ctx.save();
-  ctx.strokeStyle = "rgba(255,255,255,0.05)";
-  ctx.lineWidth = 1;
-
-  for (let i = -gridRange; i <= gridRange; i++) {
-    const x = c.x + (i - cameraX) * tile;
-    ctx.beginPath();
-    ctx.moveTo(x, 0);
-    ctx.lineTo(x, canvas.height);
-    ctx.stroke();
-  }
-
-  for (let j = -gridRange; j <= gridRange; j++) {
-    const y = c.y + (-j + cameraY) * tile;
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(canvas.width, y);
-    ctx.stroke();
-  }
-  ctx.restore();
-}
-
-function update() {
-  const speed = (mode === "Galaxy" ? 30 : 20) / zoom;
-
-  if (keys.w) cameraY += speed * (1 / 60);
-  if (keys.s) cameraY -= speed * (1 / 60);
-  if (keys.a) cameraX -= speed * (1 / 60);
-  if (keys.d) cameraX += speed * (1 / 60);
-
-  cameraX = Math.max(-100, Math.min(100, cameraX));
-  cameraY = Math.max(-100, Math.min(100, cameraY));
-
-  drawGrid();
-  refreshMarkerPositions();
-
-  const hover = hoverWorldCoords();
-  if (hover) {
-    if (mode === "Galaxy") {
-      coords1.textContent = `[${hover.x}, ${hover.y} : 0, 0]`;
+    if (!state.selectedItem && state.hoverItem) {
+      infoEl.textContent = getMarkerInfo(state.hoverItem);
+    } else if (state.selectedItem) {
+      infoEl.textContent = getMarkerInfo(state.selectedItem);
     } else {
-      coords1.textContent = `[${selectedSpaceX}, ${selectedSpaceY} : ${hover.x}, ${hover.y}]`;
+      infoEl.textContent = "Right click a cluster, system, or body.";
+    }
+
+    hintEl.textContent = "Galaxy: clusters · Cluster: systems · System: bodies · WASD: move · Scroll: zoom · Left click: open · Middle click: select teleport target · Right click: info";
+  }
+
+  function render() {
+    const { width, height } = getCanvasSize();
+    drawBackground(width, height);
+
+    const markers = getVisibleMarkers();
+
+    for (const m of markers) {
+      const p = worldToScreen(m.wx, m.wy);
+      m.sx = p.x;
+      m.sy = p.y;
+    }
+
+    state.hoverItem = state.mouseInside ? findMarkerAtScreen(state.mouseX, state.mouseY, markers) : null;
+
+    if (state.mode === "Galaxy") {
+      drawClusterView(markers, state.hoverItem, width, height);
+    } else if (state.mode === "Cluster") {
+      drawClusterSystemView(markers, state.hoverItem, width, height);
+    } else if (state.mode === "System") {
+      drawSystemView(markers, state.hoverItem, width, height);
+    } else if (state.mode === "Surface") {
+      drawSurfaceView(width, height);
+    }
+
+    updateUiTexts();
+    requestAnimationFrame(render);
+  }
+
+  function getSelectionFromMouse() {
+    const markers = getVisibleMarkers();
+    for (const m of markers) {
+      const p = worldToScreen(m.wx, m.wy);
+      m.sx = p.x;
+      m.sy = p.y;
+    }
+    return findMarkerAtScreen(state.mouseX, state.mouseY, markers);
+  }
+
+  function onPrimaryClick(item) {
+    if (!item) return;
+
+    if (item.kind === "cluster") {
+      setViewCluster(item.object);
+      return;
+    }
+
+    if (item.kind === "system") {
+      if (state.mode === "Galaxy") {
+        // Clicking a system only exists in cluster/system views, but keep it safe.
+        setViewSystem(item.object, item.cluster || state.currentCluster);
+      } else {
+        setViewSystem(item.object, item.cluster || state.currentCluster);
+      }
+      return;
+    }
+
+    if (item.kind === "body") {
+      setViewSurface(item.object, item.system || state.currentSystem, item.cluster || state.currentCluster);
     }
   }
 
-  requestAnimationFrame(update);
-}
+  function onMiddleClick(item) {
+    if (!item) return;
+    setSelection(item);
+  }
 
-setUniverseSeed(Universe.DefaultUniverseSeed);
-selectedSystem = getSystem(selectedSpaceX, selectedSpaceY) || getSystemsArray()[0];
-selectedSpaceX = selectedSystem.SpaceX;
-selectedSpaceY = selectedSystem.SpaceY;
-cameraX = selectedSpaceX;
-cameraY = selectedSpaceY;
-showSystemInfo(selectedSystem);
-updateCoords2();
-rebuildView();
-update();
+  function onRightClick(item) {
+    if (!item) return;
+    setSelection(item);
+  }
+
+  function initSelection() {
+    const catalog = buildCatalog();
+    state.currentCluster = catalog.clusters[0] || null;
+    state.currentSystem = state.currentCluster ? state.currentCluster.Systems[0] || null : null;
+    state.currentBody = state.currentSystem ? state.currentSystem.Bodies[0] || null : null;
+    state.selectedItem = state.currentCluster ? { kind: "cluster", object: state.currentCluster } : null;
+    state.cameraX = state.currentCluster ? state.currentCluster.ClusterX : 0;
+    state.cameraY = state.currentCluster ? state.currentCluster.ClusterY : 0;
+    state.mode = "Galaxy";
+    state.zoom = 1;
+    infoEl.textContent = getMarkerInfo(state.selectedItem);
+  }
+
+  function stepMovement(dt) {
+    if (state.mode === "Surface") return;
+
+    const speedBase =
+      state.mode === "Galaxy" ? 30 :
+      state.mode === "Cluster" ? 22 : 18;
+
+    const speed = (speedBase / state.zoom) * dt;
+
+    if (state.keys.W) state.cameraY += speed;
+    if (state.keys.S) state.cameraY -= speed;
+    if (state.keys.A) state.cameraX -= speed;
+    if (state.keys.D) state.cameraX += speed;
+
+    state.cameraX = clamp(state.cameraX, -150, 150);
+    state.cameraY = clamp(state.cameraY, -150, 150);
+  }
+
+  function frameLoop() {
+    stepMovement(1 / 60);
+    render();
+  }
+
+  canvas.addEventListener("mousemove", (e) => {
+    const rect = canvas.getBoundingClientRect();
+    state.mouseX = e.clientX - rect.left;
+    state.mouseY = e.clientY - rect.top;
+    state.mouseInside = true;
+  });
+
+  canvas.addEventListener("mouseleave", () => {
+    state.mouseInside = false;
+    state.hoverItem = null;
+  });
+
+  canvas.addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+  });
+
+  canvas.addEventListener("mousedown", (e) => {
+    const item = getSelectionFromMouse();
+
+    if (e.button === 0) {
+      onPrimaryClick(item);
+    } else if (e.button === 1) {
+      e.preventDefault();
+      onMiddleClick(item);
+    } else if (e.button === 2) {
+      onRightClick(item);
+    }
+  });
+
+  canvas.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    state.zoom = clamp(state.zoom + (e.deltaY < 0 ? 0.12 : -0.12), 0.5, 3);
+  }, { passive: false });
+
+  window.addEventListener("resize", resizeCanvas);
+
+  window.addEventListener("keydown", (e) => {
+    if (e.repeat) return;
+
+    if (e.key === "m" || e.key === "M") {
+      canvas.style.display = canvas.style.display === "none" ? "block" : "block";
+      return;
+    }
+
+    if (e.key === "w" || e.key === "W") state.keys.W = true;
+    if (e.key === "a" || e.key === "A") state.keys.A = true;
+    if (e.key === "s" || e.key === "S") state.keys.S = true;
+    if (e.key === "d" || e.key === "D") state.keys.D = true;
+    if (e.key === "Escape") {
+      if (state.mode === "Surface" && state.currentSystem) {
+        setViewSystem(state.currentSystem, state.currentCluster);
+      } else if (state.mode === "System" && state.currentCluster) {
+        setViewCluster(state.currentCluster);
+      } else if (state.mode === "Cluster") {
+        setViewGalaxy();
+      }
+    }
+    if (e.key === "Enter") {
+      teleportToSelection();
+    }
+  });
+
+  window.addEventListener("keyup", (e) => {
+    if (e.key === "w" || e.key === "W") state.keys.W = false;
+    if (e.key === "a" || e.key === "A") state.keys.A = false;
+    if (e.key === "s" || e.key === "S") state.keys.S = false;
+    if (e.key === "d" || e.key === "D") state.keys.D = false;
+  });
+
+  backBtn.addEventListener("click", () => {
+    if (state.mode === "Surface" && state.currentSystem) {
+      setViewSystem(state.currentSystem, state.currentCluster);
+      return;
+    }
+    if (state.mode === "System" && state.currentCluster) {
+      setViewCluster(state.currentCluster);
+      return;
+    }
+    if (state.mode === "Cluster") {
+      setViewGalaxy();
+    }
+  });
+
+  teleportBtn.addEventListener("click", () => {
+    teleportToSelection();
+  });
+
+  resizeCanvas();
+  initSelection();
+  frameLoop();
+})();
