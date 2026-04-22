@@ -10,9 +10,6 @@
     clusterMaxCoord: 150,
     systemCountMin: 100,
     systemCountMax: 150,
-    systemLocalMin: -70,
-    systemLocalMax: 70,
-    bodyLocalRadius: 14,
     galaxyScale: 16,
     clusterScale: 18,
     systemScale: 22,
@@ -38,7 +35,7 @@
   const NAME_C = [
     "ara","eth","ion","ova","ula","ani","eum","iro","oma","ura",
     "ane","eis","ite","ono","uri","ora","alis","urus","aris","eon",
-    "oria","yra","elle","aris","uvis","enos","aris","une","oriax","ivia"
+    "oria","yra","elle","aris","uvis","enos","une","oriax","ivia"
   ];
 
   const BODY_NAMES = [
@@ -53,7 +50,6 @@
   const BODY_SUFFIXES = ["", "", "", "", " 2", " 4", " 7", " 12", " 19", " 33", " 88", " 200", " Prime", " IV", " VII"];
   const STAR_TYPES = ["Red Dwarf", "Yellow Star", "Blue Giant", "White Star", "Orange Star"];
   const TERRAINS = ["Rocky", "Desert", "Ocean", "Temperate", "Barren", "Volcanic", "Frozen", "Metal"];
-  const bodyLetterNames = ["b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m"];
 
   const canvas = document.getElementById("map");
   const ctx = canvas.getContext("2d", { alpha: true });
@@ -68,7 +64,7 @@
   const state = {
     seed: CONFIG.seed,
     catalog: null,
-    mode: "Galaxy",
+    mode: "Galaxy", // Galaxy, Cluster, System, Surface
     currentCluster: null,
     currentSystem: null,
     currentBody: null,
@@ -81,7 +77,9 @@
     mouseY: 0,
     mouseInside: false,
     keys: { W: false, A: false, S: false, D: false },
+    moveKeys: { up: false, down: false, left: false, right: false },
     stars: [],
+    uiCreated: false,
 
     dragging: false,
     dragPointerId: null,
@@ -90,8 +88,8 @@
     dragStartCameraX: 0,
     dragStartCameraY: 0,
     dragMoved: false,
-    pressedItem: null,
     pressedButton: -1,
+    pressedItem: null,
   };
 
   function clamp(v, a, b) {
@@ -124,7 +122,6 @@
       x ^= x + Math.imul(x ^ (x >>> 7), x | 61);
       return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
     };
-
     return {
       next,
       float(min = 0, max = 1) {
@@ -168,6 +165,10 @@
     return `rgb(${r}, ${g}, ${b})`;
   }
 
+  function rgbToCss(r, g, b) {
+    return `rgb(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)})`;
+  }
+
   function chooseClusterPosition(rng, used) {
     let x, y, k;
     let tries = 0;
@@ -185,6 +186,7 @@
 
       x = clamp(x, CONFIG.clusterMinCoord, CONFIG.clusterMaxCoord);
       y = clamp(y, CONFIG.clusterMinCoord, CONFIG.clusterMaxCoord);
+
       if (x === 0 && y === 0) x = 1;
       k = key2(x, y);
     } while (used[k] && tries < 300);
@@ -279,7 +281,9 @@
     else cls = "Ice Giant";
 
     let terrain = cls;
-    if (cls === "Terrestrial") terrain = rng.pick(TERRAINS);
+    if (cls === "Terrestrial") {
+      terrain = rng.pick(TERRAINS);
+    }
 
     let size;
     if (cls === "Terrestrial") size = rng.int(25, 60);
@@ -299,12 +303,11 @@
     let lifeType = "None";
 
     if (cls === "Terrestrial") {
-      breathable = (
+      breathable =
         (terrain === "Ocean" || terrain === "Temperate") &&
         temperature >= 260 && temperature <= 330 &&
         gravity >= 0.7 && gravity <= 1.4 &&
-        rng.next() > 0.30
-      );
+        rng.next() > 0.30;
 
       if (breathable && rng.next() < 0.22) {
         hasLife = true;
@@ -316,8 +319,15 @@
     }
 
     const color = planetClassToColor(rng, cls, terrain);
-    const hasRings = cls !== "Terrestrial" ? rng.next() < 0.35 : terrain === "Frozen" && rng.next() < 0.15;
-    let tidallyLocked = orbitRadius <= 6 ? rng.next() < 0.80 : orbitRadius <= 10 ? rng.next() < 0.35 : rng.next() < 0.10;
+    const hasRings =
+      cls !== "Terrestrial"
+        ? rng.next() < 0.35
+        : terrain === "Frozen" && rng.next() < 0.15;
+
+    let tidallyLocked =
+      orbitRadius <= 6 ? rng.next() < 0.80 :
+      orbitRadius <= 10 ? rng.next() < 0.35 :
+      rng.next() < 0.10;
 
     if (cls === "Terrestrial" && terrain === "Temperate" && breathable) {
       tidallyLocked = false;
@@ -338,6 +348,103 @@
       LifeType: lifeType,
       HasRings: hasRings,
       TidallyLocked: tidallyLocked,
+    };
+  }
+
+  function makeFixedBody(data) {
+    return {
+      BodyID: data.BodyID,
+      Name: data.Name,
+      SystemX: data.SystemX,
+      SystemY: data.SystemY,
+      OrbitRadius: data.OrbitRadius,
+      Class: data.Class,
+      Type: data.Type,
+      Size: data.Size,
+      Color: data.Color,
+      Gravity: data.Gravity,
+      Roughness: data.Roughness,
+      Temperature: data.Temperature,
+      Breathable: data.Breathable,
+      HasLife: data.HasLife || false,
+      LifeType: data.LifeType || "None",
+      HasRings: data.HasRings || false,
+      TidallyLocked: data.TidallyLocked || false,
+    };
+  }
+
+  function makeSolCluster() {
+    const bodies = [
+      makeFixedBody({
+        BodyID: 1, Name: "Mercury", SystemX: 2, SystemY: 0, OrbitRadius: 2,
+        Class: "Terrestrial", Type: "Barren", Size: 48,
+        Color: "rgb(169, 159, 149)", Gravity: 0.38, Roughness: 4, Temperature: 440,
+        Breathable: false, HasRings: false, TidallyLocked: true
+      }),
+      makeFixedBody({
+        BodyID: 2, Name: "Venus", SystemX: -4, SystemY: 1, OrbitRadius: 4,
+        Class: "Terrestrial", Type: "Desert", Size: 115,
+        Color: "rgb(220, 160, 90)", Gravity: 0.91, Roughness: 5, Temperature: 737,
+        Breathable: false, HasRings: false, TidallyLocked: true
+      }),
+      makeFixedBody({
+        BodyID: 3, Name: "Earth", SystemX: 6, SystemY: -1, OrbitRadius: 6,
+        Class: "Terrestrial", Type: "Temperate", Size: 116,
+        Color: "rgb(60, 120, 200)", Gravity: 1.00, Roughness: 2, Temperature: 288,
+        Breathable: true, HasLife: true, LifeType: "Plant", HasRings: false, TidallyLocked: false
+      }),
+      makeFixedBody({
+        BodyID: 4, Name: "Mars", SystemX: -8, SystemY: -2, OrbitRadius: 8,
+        Class: "Terrestrial", Type: "Desert", Size: 62,
+        Color: "rgb(200, 80, 40)", Gravity: 0.38, Roughness: 3, Temperature: 210,
+        Breathable: false, HasRings: false, TidallyLocked: false
+      }),
+      makeFixedBody({
+        BodyID: 5, Name: "Jupiter", SystemX: 14, SystemY: 3, OrbitRadius: 14,
+        Class: "Gas Giant", Type: "Gas Giant", Size: 170,
+        Color: "rgb(210, 165, 115)", Gravity: 2.53, Roughness: 1, Temperature: 165,
+        Breathable: false, HasRings: false, TidallyLocked: false
+      }),
+      makeFixedBody({
+        BodyID: 6, Name: "Saturn", SystemX: -19, SystemY: -4, OrbitRadius: 19,
+        Class: "Gas Giant", Type: "Gas Giant", Size: 155,
+        Color: "rgb(230, 200, 160)", Gravity: 1.07, Roughness: 1, Temperature: 134,
+        Breathable: false, HasRings: true, TidallyLocked: false
+      }),
+      makeFixedBody({
+        BodyID: 7, Name: "Uranus", SystemX: 25, SystemY: 5, OrbitRadius: 25,
+        Class: "Ice Giant", Type: "Frozen", Size: 128,
+        Color: "rgb(175, 220, 230)", Gravity: 0.89, Roughness: 2, Temperature: 76,
+        Breathable: false, HasRings: true, TidallyLocked: false
+      }),
+      makeFixedBody({
+        BodyID: 8, Name: "Neptune", SystemX: -31, SystemY: -6, OrbitRadius: 31,
+        Class: "Ice Giant", Type: "Frozen", Size: 125,
+        Color: "rgb(60, 80, 200)", Gravity: 1.12, Roughness: 2, Temperature: 72,
+        Breathable: false, HasRings: false, TidallyLocked: false
+      }),
+    ];
+
+    const solSystem = {
+      SystemID: stableHash("real", "Sol"),
+      Name: "Sol",
+      SpaceX: 0,
+      SpaceY: 0,
+      StarType: "Yellow Star",
+      StarColor: "rgb(255, 224, 100)",
+      StarTemperature: 5778,
+      PlanetCount: bodies.length,
+      Bodies: bodies,
+      HasDyson: false,
+    };
+
+    return {
+      ClusterID: stableHash("realcluster", "Sol"),
+      Name: "Sol Cluster",
+      ClusterX: 0,
+      ClusterY: 0,
+      SystemCount: 1,
+      Systems: [solSystem],
     };
   }
 
@@ -369,8 +476,8 @@
       for (let bodyId = 1; bodyId <= planetCount; bodyId++) {
         const bodySeed = stableHash("body", systemSeed, bodyId);
         const bodyRng = makeRng(bodySeed);
-
         const orbitRadius = bodyId * 4 + bodyRng.float(2, 6);
+
         let angle = bodyRng.float(0, TAU);
         let bx = Math.floor(Math.cos(angle) * orbitRadius);
         let by = Math.floor(Math.sin(angle) * orbitRadius);
@@ -436,6 +543,10 @@
       clusters.push(cluster);
       byCluster[key2(pos.x, pos.y)] = cluster;
     }
+
+    const solCluster = makeSolCluster();
+    clusters.push(solCluster);
+    byCluster[key2(0, 0)] = solCluster;
 
     clusters.sort((a, b) => {
       if (a.ClusterX === b.ClusterX) return a.ClusterY - b.ClusterY;
@@ -559,6 +670,7 @@
     state.zoom = 1;
     state.currentSystem = null;
     state.currentBody = null;
+
     if (state.currentCluster) {
       state.cameraX = state.currentCluster.ClusterX;
       state.cameraY = state.currentCluster.ClusterY;
@@ -566,7 +678,10 @@
       state.cameraX = 0;
       state.cameraY = 0;
     }
-    if (state.currentCluster) setSelection({ kind: "cluster", object: state.currentCluster });
+
+    if (state.currentCluster) {
+      setSelection({ kind: "cluster", object: state.currentCluster });
+    }
   }
 
   function setViewCluster(cluster) {
@@ -610,11 +725,6 @@
     if (item.kind === "cluster") setViewCluster(item.object);
     else if (item.kind === "system") setViewSystem(item.object, item.cluster || state.currentCluster);
     else if (item.kind === "body") setViewSurface(item.object, item.system || state.currentSystem, item.cluster || state.currentCluster);
-  }
-
-  function teleportToSelection() {
-    if (!state.selectedItem) return;
-    openItem(state.selectedItem);
   }
 
   function getVisibleMarkers() {
@@ -683,6 +793,7 @@
           label: body.Name,
         });
       }
+
       return markers;
     }
 
@@ -770,6 +881,7 @@
       ctx.arc(m.sx, m.sy, m.r, 0, TAU);
       ctx.fillStyle = m.color;
       ctx.fill();
+
       ctx.strokeStyle = "rgba(0,0,0,0.65)";
       ctx.lineWidth = 1.5;
       ctx.stroke();
@@ -804,10 +916,12 @@
 
     for (const m of markers) {
       if (m.isStar) continue;
+
       ctx.beginPath();
       ctx.arc(m.sx, m.sy, m.r, 0, TAU);
       ctx.fillStyle = m.color;
       ctx.fill();
+
       ctx.strokeStyle = "rgba(0,0,0,0.65)";
       ctx.lineWidth = 1.2;
       ctx.stroke();
@@ -856,10 +970,12 @@
 
     for (const m of markers) {
       if (m.isStar) continue;
+
       ctx.beginPath();
       ctx.arc(m.sx, m.sy, m.r, 0, TAU);
       ctx.fillStyle = m.color;
       ctx.fill();
+
       ctx.strokeStyle = "rgba(0,0,0,0.65)";
       ctx.lineWidth = 1.2;
       ctx.stroke();
@@ -945,95 +1061,6 @@
     hintEl.textContent = "Galaxy: clusters · Cluster: systems · System: bodies · WASD: move · Left drag: pan · Scroll: zoom · Left click: open · Middle click: select teleport target · Right click: info";
   }
 
-  function getVisibleMarkers() {
-    const markers = [];
-
-    if (state.mode === "Galaxy") {
-      for (const cluster of state.catalog.clusters) {
-        markers.push({
-          kind: "cluster",
-          object: cluster,
-          wx: cluster.ClusterX,
-          wy: cluster.ClusterY,
-          r: clamp(9 + cluster.SystemCount * 0.04, 9, 18),
-          color: hsvToCss(fract((cluster.ClusterID % 1000) / 1000), 0.65, 1),
-          label: cluster.Name,
-        });
-      }
-      return markers;
-    }
-
-    if (state.mode === "Cluster") {
-      const cluster = state.currentCluster;
-      if (!cluster) return markers;
-      for (const system of cluster.Systems) {
-        markers.push({
-          kind: "system",
-          object: system,
-          cluster,
-          wx: system.SpaceX,
-          wy: system.SpaceY,
-          r: 6,
-          color: system.StarColor,
-          label: system.Name,
-        });
-      }
-      return markers;
-    }
-
-    if (state.mode === "System") {
-      const cluster = state.currentCluster;
-      const system = state.currentSystem;
-      if (!system) return markers;
-
-      markers.push({
-        kind: "system",
-        object: system,
-        cluster,
-        wx: 0,
-        wy: 0,
-        r: 14,
-        color: system.StarColor,
-        label: system.Name,
-        isStar: true,
-      });
-
-      for (const body of system.Bodies) {
-        markers.push({
-          kind: "body",
-          object: body,
-          cluster,
-          system,
-          wx: body.SystemX,
-          wy: body.SystemY,
-          r: clamp(body.Size / 24, 6, 26),
-          color: body.Color,
-          label: body.Name,
-        });
-      }
-      return markers;
-    }
-
-    if (state.mode === "Surface") {
-      const body = state.currentBody;
-      if (body) {
-        markers.push({
-          kind: "body",
-          object: body,
-          cluster: state.currentCluster,
-          system: state.currentSystem,
-          wx: 0,
-          wy: 0,
-          r: 0,
-          color: body.Color,
-          label: body.Name,
-        });
-      }
-    }
-
-    return markers;
-  }
-
   function refreshHoverItem() {
     const markers = getVisibleMarkers();
     for (const m of markers) {
@@ -1077,6 +1104,261 @@
     state.cameraY = clamp(state.cameraY, -150, 150);
   }
 
+  function parseJumpInput(raw) {
+    const text = String(raw || "").trim().toLowerCase();
+    if (!text) return null;
+
+    if (/(^|\b)(earth|sol|sun)(\b|$)/.test(text)) {
+      return { kind: "earth" };
+    }
+
+    const nums = text.match(/-?\d+/g);
+    if (!nums || nums.length < 2) return null;
+
+    return {
+      kind: "coords",
+      clusterX: Number(nums[0]),
+      clusterY: Number(nums[1]),
+      systemX: nums.length >= 4 ? Number(nums[2]) : null,
+      systemY: nums.length >= 4 ? Number(nums[3]) : null,
+      wantBody: /(body|planet|surface|moon)/.test(text),
+    };
+  }
+
+  function getEarthDestination() {
+    const cluster = state.catalog?.byCluster?.[key2(0, 0)];
+    if (!cluster) return null;
+    const system = cluster.Systems.find(s => s.Name === "Sol") || cluster.Systems[0] || null;
+    if (!system) return null;
+    const body = system.Bodies.find(b => b.Name === "Earth") || null;
+    if (!body) return null;
+    return { cluster, system, body };
+  }
+
+  function createOverlayControls() {
+    if (state.uiCreated) return;
+    state.uiCreated = true;
+
+    const panel = document.createElement("div");
+    panel.style.position = "absolute";
+    panel.style.left = "12px";
+    panel.style.bottom = "52px";
+    panel.style.zIndex = "20";
+    panel.style.display = "flex";
+    panel.style.flexDirection = "column";
+    panel.style.gap = "8px";
+    panel.style.pointerEvents = "auto";
+
+    const jumpRow = document.createElement("div");
+    jumpRow.style.display = "flex";
+    jumpRow.style.gap = "8px";
+    jumpRow.style.alignItems = "center";
+    jumpRow.style.flexWrap = "wrap";
+
+    const jumpInput = document.createElement("input");
+    jumpInput.type = "text";
+    jumpInput.placeholder = "earth or 12, -5 : 3, 2";
+    jumpInput.style.width = "220px";
+    jumpInput.style.padding = "10px 12px";
+    jumpInput.style.border = "0";
+    jumpInput.style.borderRadius = "10px";
+    jumpInput.style.background = "rgba(25, 28, 38, 0.92)";
+    jumpInput.style.color = "white";
+    jumpInput.style.outline = "none";
+    jumpInput.style.fontFamily = "Arial, Helvetica, sans-serif";
+    jumpInput.style.pointerEvents = "auto";
+
+    const goBtn = document.createElement("button");
+    goBtn.textContent = "Go";
+    goBtn.style.padding = "10px 14px";
+    goBtn.style.border = "0";
+    goBtn.style.borderRadius = "10px";
+    goBtn.style.background = "#2c3446";
+    goBtn.style.color = "white";
+    goBtn.style.cursor = "pointer";
+
+    const earthBtn = document.createElement("button");
+    earthBtn.textContent = "Go Earth";
+    earthBtn.style.padding = "10px 14px";
+    earthBtn.style.border = "0";
+    earthBtn.style.borderRadius = "10px";
+    earthBtn.style.background = "#1f4b2f";
+    earthBtn.style.color = "white";
+    earthBtn.style.cursor = "pointer";
+
+    jumpRow.appendChild(jumpInput);
+    jumpRow.appendChild(goBtn);
+    jumpRow.appendChild(earthBtn);
+
+    const pad = document.createElement("div");
+    pad.style.display = "grid";
+    pad.style.gridTemplateColumns = "48px 48px 48px";
+    pad.style.gridTemplateRows = "48px 48px 48px";
+    pad.style.gap = "6px";
+    pad.style.alignItems = "center";
+    pad.style.justifyItems = "center";
+    pad.style.width = "160px";
+    pad.style.pointerEvents = "auto";
+
+    function makePadButton(label, gridColumn, gridRow) {
+      const btn = document.createElement("button");
+      btn.textContent = label;
+      btn.style.width = "48px";
+      btn.style.height = "48px";
+      btn.style.border = "0";
+      btn.style.borderRadius = "12px";
+      btn.style.background = "rgba(40, 46, 62, 0.95)";
+      btn.style.color = "white";
+      btn.style.fontSize = "16px";
+      btn.style.cursor = "pointer";
+      btn.style.userSelect = "none";
+      btn.style.touchAction = "none";
+      btn.style.gridColumn = String(gridColumn);
+      btn.style.gridRow = String(gridRow);
+      return btn;
+    }
+
+    const upBtn = makePadButton("▲", 2, 1);
+    const leftBtn = makePadButton("◀", 1, 2);
+    const rightBtn = makePadButton("▶", 3, 2);
+    const downBtn = makePadButton("▼", 2, 3);
+
+    pad.appendChild(upBtn);
+    pad.appendChild(leftBtn);
+    pad.appendChild(rightBtn);
+    pad.appendChild(downBtn);
+
+    panel.appendChild(jumpRow);
+    panel.appendChild(pad);
+    document.body.appendChild(panel);
+
+    function holdButton(btn, keyName) {
+      const on = () => { state.moveKeys[keyName] = true; };
+      const off = () => { state.moveKeys[keyName] = false; };
+
+      btn.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        btn.setPointerCapture?.(e.pointerId);
+        on();
+      });
+
+      btn.addEventListener("pointerup", off);
+      btn.addEventListener("pointercancel", off);
+      btn.addEventListener("pointerleave", off);
+      btn.addEventListener("lostpointercapture", off);
+    }
+
+    holdButton(upBtn, "up");
+    holdButton(leftBtn, "left");
+    holdButton(rightBtn, "right");
+    holdButton(downBtn, "down");
+
+    function jumpToEarth() {
+      const earth = getEarthDestination();
+      if (!earth) {
+        infoEl.textContent = "Earth not available in this catalog.";
+        return;
+      }
+
+      state.currentCluster = earth.cluster;
+      state.currentSystem = earth.system;
+      state.currentBody = earth.body;
+      state.mode = "Surface";
+      state.cameraX = 0;
+      state.cameraY = 0;
+      setSelection({ kind: "body", object: earth.body, system: earth.system, cluster: earth.cluster });
+      infoEl.textContent = getMarkerInfo(state.selectedItem);
+    }
+
+    function jumpToParsedInput() {
+      const parsed = parseJumpInput(jumpInput.value);
+
+      if (!parsed) {
+        infoEl.textContent = "Use Earth, Sol, or coords like 12, -5 : 3, 2";
+        return;
+      }
+
+      if (parsed.kind === "earth") {
+        jumpToEarth();
+        return;
+      }
+
+      const cluster = state.catalog?.byCluster?.[key2(parsed.clusterX, parsed.clusterY)];
+      if (!cluster) {
+        infoEl.textContent = `Cluster not found: [${parsed.clusterX}, ${parsed.clusterY}]`;
+        return;
+      }
+
+      state.currentCluster = cluster;
+      state.mode = "Cluster";
+      state.currentSystem = cluster.Systems[0] || null;
+      state.currentBody = null;
+      state.cameraX = 0;
+      state.cameraY = 0;
+
+      if (parsed.systemX !== null && parsed.systemY !== null) {
+        const system = cluster.Systems.find(s => s.SpaceX === parsed.systemX && s.SpaceY === parsed.systemY) || null;
+        if (!system) {
+          infoEl.textContent = `System not found in cluster [${parsed.clusterX}, ${parsed.clusterY}]`;
+          return;
+        }
+
+        state.currentSystem = system;
+        state.mode = "System";
+
+        if (parsed.wantBody) {
+          const body = system.Bodies.find(b => b.SystemX === parsed.systemX && b.SystemY === parsed.systemY) || null;
+          if (body) {
+            state.currentBody = body;
+            state.mode = "Surface";
+            setSelection({ kind: "body", object: body, system, cluster });
+            infoEl.textContent = getMarkerInfo(state.selectedItem);
+            return;
+          }
+        }
+
+        setSelection({ kind: "system", object: system, cluster });
+        infoEl.textContent = getMarkerInfo(state.selectedItem);
+        return;
+      }
+
+      setSelection({ kind: "cluster", object: cluster });
+      infoEl.textContent = getMarkerInfo(state.selectedItem);
+    }
+
+    goBtn.addEventListener("click", jumpToParsedInput);
+    earthBtn.addEventListener("click", jumpToEarth);
+    jumpInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        jumpToParsedInput();
+      }
+    });
+
+    state.jumpInput = jumpInput;
+  }
+
+  function setViewFromSelectionOnClick(item) {
+    if (!item) return false;
+
+    if (item.kind === "cluster") {
+      setViewCluster(item.object);
+      return true;
+    }
+
+    if (item.kind === "system") {
+      setViewSystem(item.object, item.cluster || state.currentCluster);
+      return true;
+    }
+
+    if (item.kind === "body") {
+      setViewSurface(item.object, item.system || state.currentSystem, item.cluster || state.currentCluster);
+      return true;
+    }
+
+    return false;
+  }
+
   canvas.addEventListener("mousemove", (e) => {
     const rect = canvas.getBoundingClientRect();
     state.mouseX = e.clientX - rect.left;
@@ -1086,7 +1368,6 @@
     if (state.dragging && state.dragPointerId !== null) {
       applyPanFromDrag(e.clientX, e.clientY);
       state.dragMoved = true;
-      return;
     }
   });
 
@@ -1105,9 +1386,6 @@
     state.mouseY = e.clientY - rect.top;
     state.mouseInside = true;
 
-    const item = state.hoverItem || getVisibleMarkers().reduce((best, m) => best, null);
-    canvas.setPointerCapture(e.pointerId);
-
     state.pressedButton = e.button;
     state.pressedItem = state.hoverItem;
 
@@ -1124,6 +1402,8 @@
     } else if (e.button === 2) {
       if (state.hoverItem) setSelection(state.hoverItem);
     }
+
+    canvas.setPointerCapture?.(e.pointerId);
   });
 
   canvas.addEventListener("pointermove", (e) => {
@@ -1147,11 +1427,11 @@
 
   function endPointer(e) {
     if (state.dragPointerId === e.pointerId && state.pressedButton === 0) {
-      const item = state.hoverItem;
       const wasDrag = state.dragging && state.dragMoved;
+      const item = state.hoverItem;
 
       if (!wasDrag && item) {
-        openItem(item);
+        setViewFromSelectionOnClick(item);
       }
 
       state.dragPointerId = null;
@@ -1185,7 +1465,7 @@
   });
 
   teleportBtn.addEventListener("click", () => {
-    teleportToSelection();
+    if (state.selectedItem) openItem(state.selectedItem);
   });
 
   window.addEventListener("resize", resizeCanvas);
@@ -1203,13 +1483,20 @@
     if (e.key === "s" || e.key === "S") state.keys.S = true;
     if (e.key === "d" || e.key === "D") state.keys.D = true;
 
+    if (e.key === "ArrowUp") state.moveKeys.up = true;
+    if (e.key === "ArrowDown") state.moveKeys.down = true;
+    if (e.key === "ArrowLeft") state.moveKeys.left = true;
+    if (e.key === "ArrowRight") state.moveKeys.right = true;
+
     if (e.key === "Escape") {
       if (state.mode === "Surface" && state.currentSystem) setViewSystem(state.currentSystem, state.currentCluster);
       else if (state.mode === "System" && state.currentCluster) setViewCluster(state.currentCluster);
       else if (state.mode === "Cluster") setViewGalaxy();
     }
 
-    if (e.key === "Enter") teleportToSelection();
+    if (e.key === "Enter" && state.jumpInput) {
+      state.jumpInput.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+    }
   });
 
   window.addEventListener("keyup", (e) => {
@@ -1217,6 +1504,11 @@
     if (e.key === "a" || e.key === "A") state.keys.A = false;
     if (e.key === "s" || e.key === "S") state.keys.S = false;
     if (e.key === "d" || e.key === "D") state.keys.D = false;
+
+    if (e.key === "ArrowUp") state.moveKeys.up = false;
+    if (e.key === "ArrowDown") state.moveKeys.down = false;
+    if (e.key === "ArrowLeft") state.moveKeys.left = false;
+    if (e.key === "ArrowRight") state.moveKeys.right = false;
   });
 
   function tick(ts) {
@@ -1233,6 +1525,11 @@
       if (state.keys.A) state.cameraX -= speed;
       if (state.keys.D) state.cameraX += speed;
 
+      if (state.moveKeys.up) state.cameraY += speed;
+      if (state.moveKeys.down) state.cameraY -= speed;
+      if (state.moveKeys.left) state.cameraX -= speed;
+      if (state.moveKeys.right) state.cameraX += speed;
+
       state.cameraX = clamp(state.cameraX, -150, 150);
       state.cameraY = clamp(state.cameraY, -150, 150);
     }
@@ -1241,16 +1538,20 @@
     requestAnimationFrame(tick);
   }
 
+  createOverlayControls();
   resizeCanvas();
   buildCatalog();
-  state.currentCluster = state.catalog.clusters[0] || null;
+
+  state.currentCluster = state.catalog.byCluster[key2(0, 0)] || state.catalog.clusters[0] || null;
   state.currentSystem = state.currentCluster ? state.currentCluster.Systems[0] || null : null;
   state.currentBody = state.currentSystem ? state.currentSystem.Bodies[0] || null : null;
   state.selectedItem = state.currentCluster ? { kind: "cluster", object: state.currentCluster } : null;
   state.cameraX = state.currentCluster ? state.currentCluster.ClusterX : 0;
   state.cameraY = state.currentCluster ? state.currentCluster.ClusterY : 0;
-  infoEl.textContent = getMarkerInfo(state.selectedItem);
 
-  canvas.focus?.();
+  if (state.currentCluster) {
+    infoEl.textContent = getMarkerInfo(state.selectedItem);
+  }
+
   requestAnimationFrame(tick);
 })();
