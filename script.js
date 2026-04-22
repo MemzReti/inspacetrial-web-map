@@ -51,11 +51,8 @@
   ];
 
   const BODY_SUFFIXES = ["", "", "", "", " 2", " 4", " 7", " 12", " 19", " 33", " 88", " 200", " Prime", " IV", " VII"];
-
   const STAR_TYPES = ["Red Dwarf", "Yellow Star", "Blue Giant", "White Star", "Orange Star"];
-
   const TERRAINS = ["Rocky", "Desert", "Ocean", "Temperate", "Barren", "Volcanic", "Frozen", "Metal"];
-
   const bodyLetterNames = ["b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m"];
 
   const canvas = document.getElementById("map");
@@ -71,11 +68,11 @@
   const state = {
     seed: CONFIG.seed,
     catalog: null,
-    mode: "Galaxy", // Galaxy -> Cluster -> System -> Surface
+    mode: "Galaxy",
     currentCluster: null,
     currentSystem: null,
     currentBody: null,
-    selectedItem: null, // { kind, object, cluster, system, body }
+    selectedItem: null,
     hoverItem: null,
     cameraX: 0,
     cameraY: 0,
@@ -85,6 +82,16 @@
     mouseInside: false,
     keys: { W: false, A: false, S: false, D: false },
     stars: [],
+
+    dragging: false,
+    dragPointerId: null,
+    dragStartX: 0,
+    dragStartY: 0,
+    dragStartCameraX: 0,
+    dragStartCameraY: 0,
+    dragMoved: false,
+    pressedItem: null,
+    pressedButton: -1,
   };
 
   function clamp(v, a, b) {
@@ -153,20 +160,12 @@
       case 5: r = v; g = p; b = q; break;
     }
 
-    return [
-      Math.round(r * 255),
-      Math.round(g * 255),
-      Math.round(b * 255),
-    ];
+    return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
   }
 
   function hsvToCss(h, s, v) {
     const [r, g, b] = hsvToRgb(h, s, v);
     return `rgb(${r}, ${g}, ${b})`;
-  }
-
-  function rgbToCss(r, g, b) {
-    return `rgb(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)})`;
   }
 
   function chooseClusterPosition(rng, used) {
@@ -186,7 +185,6 @@
 
       x = clamp(x, CONFIG.clusterMinCoord, CONFIG.clusterMaxCoord);
       y = clamp(y, CONFIG.clusterMinCoord, CONFIG.clusterMaxCoord);
-
       if (x === 0 && y === 0) x = 1;
       k = key2(x, y);
     } while (used[k] && tries < 300);
@@ -269,6 +267,7 @@
     if (terrain === "Barren") {
       return hsvToCss(rng.float(0.05, 0.12), rng.float(0.12, 0.35), rng.float(0.35, 0.75));
     }
+
     return hsvToCss(rng.next(), rng.float(0.15, 0.65), rng.float(0.55, 1));
   }
 
@@ -280,9 +279,7 @@
     else cls = "Ice Giant";
 
     let terrain = cls;
-    if (cls === "Terrestrial") {
-      terrain = rng.pick(TERRAINS);
-    }
+    if (cls === "Terrestrial") terrain = rng.pick(TERRAINS);
 
     let size;
     if (cls === "Terrestrial") size = rng.int(25, 60);
@@ -318,14 +315,13 @@
       }
     }
 
-    let hasRings = cls !== "Terrestrial" ? rng.next() < 0.35 : terrain === "Frozen" && rng.next() < 0.15;
+    const color = planetClassToColor(rng, cls, terrain);
+    const hasRings = cls !== "Terrestrial" ? rng.next() < 0.35 : terrain === "Frozen" && rng.next() < 0.15;
     let tidallyLocked = orbitRadius <= 6 ? rng.next() < 0.80 : orbitRadius <= 10 ? rng.next() < 0.35 : rng.next() < 0.10;
 
     if (cls === "Terrestrial" && terrain === "Temperate" && breathable) {
       tidallyLocked = false;
     }
-
-    const color = planetClassToColor(rng, cls, terrain);
 
     return {
       BodyID: bodyId,
@@ -375,7 +371,6 @@
         const bodyRng = makeRng(bodySeed);
 
         const orbitRadius = bodyId * 4 + bodyRng.float(2, 6);
-
         let angle = bodyRng.float(0, TAU);
         let bx = Math.floor(Math.cos(angle) * orbitRadius);
         let by = Math.floor(Math.sin(angle) * orbitRadius);
@@ -387,6 +382,7 @@
           by = Math.floor(Math.sin(angle) * orbitRadius);
           bk = key2(bx, by);
         }
+
         usedBodies[bk] = true;
 
         const body = createPlanetBody(systemSeed, bodyId, orbitRadius, starTemperature, bodyRng);
@@ -410,11 +406,6 @@
         HasDyson: sysRng.next() < 0.03,
       });
     }
-
-    systems.sort((a, b) => {
-      if (a.SpaceX === b.SpaceX) return a.SpaceY - b.SpaceY;
-      return a.SpaceX - b.SpaceX;
-    });
 
     return {
       ClusterID: clusterID,
@@ -451,12 +442,7 @@
       return a.ClusterX - b.ClusterX;
     });
 
-    state.catalog = {
-      seed: state.seed,
-      clusters,
-      byCluster,
-    };
-
+    state.catalog = { seed: state.seed, clusters, byCluster };
     return state.catalog;
   }
 
@@ -500,17 +486,10 @@
     const scale = getModeScale();
     const cx = width * 0.5;
     const cy = height * 0.5;
-    const x = cx + ((wx - state.cameraX) * scale);
-    const y = cy + ((-wy + state.cameraY) * scale);
-    return { x, y };
-  }
-
-  function screenToWorld(sx, sy) {
-    const { width, height } = getCanvasSize();
-    const scale = getModeScale();
-    const wx = state.cameraX + ((sx - width * 0.5) / scale);
-    const wy = state.cameraY - ((sy - height * 0.5) / scale);
-    return { x: wx, y: wy };
+    return {
+      x: cx + ((wx - state.cameraX) * scale),
+      y: cy + ((-wy + state.cameraY) * scale),
+    };
   }
 
   function getCurrentPathText() {
@@ -518,26 +497,14 @@
     const s = state.currentSystem;
     const b = state.currentBody;
 
-    if (state.mode === "Galaxy") {
-      return c ? `Cluster: [${c.ClusterX}, ${c.ClusterY}]` : "Cluster: [?, ?]";
-    }
-    if (state.mode === "Cluster") {
-      return c && s
-        ? `Cluster: [${c.ClusterX}, ${c.ClusterY}]  |  System: [${s.SpaceX}, ${s.SpaceY}]`
-        : "Cluster / System: [?, ?]";
-    }
-    if (state.mode === "System") {
-      return c && s && b
-        ? `Cluster: [${c.ClusterX}, ${c.ClusterY}]  |  System: [${s.SpaceX}, ${s.SpaceY}]  |  Body: [${b.SystemX}, ${b.SystemY}]`
-        : "Cluster / System / Body: [?, ?]";
-    }
+    if (state.mode === "Galaxy") return c ? `Cluster: [${c.ClusterX}, ${c.ClusterY}]` : "Cluster: [?, ?]";
+    if (state.mode === "Cluster") return c && s ? `Cluster: [${c.ClusterX}, ${c.ClusterY}]  |  System: [${s.SpaceX}, ${s.SpaceY}]` : "Cluster / System: [?, ?]";
+    if (state.mode === "System") return c && s && b ? `Cluster: [${c.ClusterX}, ${c.ClusterY}]  |  System: [${s.SpaceX}, ${s.SpaceY}]  |  Body: [${b.SystemX}, ${b.SystemY}]` : "Cluster / System / Body: [?, ?]";
     return b ? `Surface: ${b.Name}` : "Surface";
   }
 
   function getMarkerInfo(item) {
-    if (!item) {
-      return "Right click a cluster, system, or body.";
-    }
+    if (!item) return "Right click a cluster, system, or body.";
 
     if (item.kind === "cluster") {
       const c = item.object;
@@ -599,9 +566,7 @@
       state.cameraX = 0;
       state.cameraY = 0;
     }
-    if (state.currentCluster) {
-      setSelection({ kind: "cluster", object: state.currentCluster });
-    }
+    if (state.currentCluster) setSelection({ kind: "cluster", object: state.currentCluster });
   }
 
   function setViewCluster(cluster) {
@@ -642,20 +607,9 @@
 
   function openItem(item) {
     if (!item) return;
-
-    if (item.kind === "cluster") {
-      setViewCluster(item.object);
-      return;
-    }
-
-    if (item.kind === "system") {
-      setViewSystem(item.object, item.cluster || state.currentCluster);
-      return;
-    }
-
-    if (item.kind === "body") {
-      setViewSurface(item.object, item.system || state.currentSystem, item.cluster || state.currentCluster);
-    }
+    if (item.kind === "cluster") setViewCluster(item.object);
+    else if (item.kind === "system") setViewSystem(item.object, item.cluster || state.currentCluster);
+    else if (item.kind === "body") setViewSurface(item.object, item.system || state.currentSystem, item.cluster || state.currentCluster);
   }
 
   function teleportToSelection() {
@@ -684,7 +638,6 @@
     if (state.mode === "Cluster") {
       const cluster = state.currentCluster;
       if (!cluster) return markers;
-
       for (const system of cluster.Systems) {
         markers.push({
           kind: "system",
@@ -735,18 +688,19 @@
 
     if (state.mode === "Surface") {
       const body = state.currentBody;
-      if (!body) return markers;
-      markers.push({
-        kind: "body",
-        object: body,
-        cluster: state.currentCluster,
-        system: state.currentSystem,
-        wx: 0,
-        wy: 0,
-        r: 0,
-        color: body.Color,
-        label: body.Name,
-      });
+      if (body) {
+        markers.push({
+          kind: "body",
+          object: body,
+          cluster: state.currentCluster,
+          system: state.currentSystem,
+          wx: 0,
+          wy: 0,
+          r: 0,
+          color: body.Color,
+          label: body.Name,
+        });
+      }
     }
 
     return markers;
@@ -772,10 +726,7 @@
   }
 
   function drawBackground(width, height) {
-    const g = ctx.createRadialGradient(
-      width * 0.5, height * 0.5, 0,
-      width * 0.5, height * 0.5, Math.max(width, height) * 0.8
-    );
+    const g = ctx.createRadialGradient(width * 0.5, height * 0.5, 0, width * 0.5, height * 0.5, Math.max(width, height) * 0.8);
     g.addColorStop(0, "#0e1020");
     g.addColorStop(0.6, "#05060a");
     g.addColorStop(1, "#020203");
@@ -813,33 +764,26 @@
     ctx.stroke();
   }
 
-  function drawClusterView(markers, hovered, width, height) {
+  function drawClusterView(markers, hovered) {
     for (const m of markers) {
-      const size = m.r * 2;
       ctx.beginPath();
       ctx.arc(m.sx, m.sy, m.r, 0, TAU);
       ctx.fillStyle = m.color;
       ctx.fill();
-
       ctx.strokeStyle = "rgba(0,0,0,0.65)";
       ctx.lineWidth = 1.5;
       ctx.stroke();
 
-      if (m === hovered || (state.selectedItem && state.selectedItem.kind === "cluster" && state.selectedItem.object === m.object)) {
+      if (hovered === m || (state.selectedItem && state.selectedItem.kind === "cluster" && state.selectedItem.object === m.object)) {
         drawHalo(m.sx, m.sy, m.r + 8);
-      }
-
-      if (m === hovered || (state.selectedItem && state.selectedItem.kind === "cluster" && state.selectedItem.object === m.object)) {
         drawTextWithStroke(m.label, m.sx, m.sy + m.r + 12, 12, "center");
       }
     }
   }
 
   function drawClusterSystemView(markers, hovered) {
-    const cluster = state.currentCluster;
-    if (!cluster) return;
-
     const star = markers.find(m => m.kind === "system" && m.isStar);
+
     if (star) {
       ctx.beginPath();
       ctx.arc(star.sx, star.sy, 18, 0, TAU);
@@ -864,7 +808,6 @@
       ctx.arc(m.sx, m.sy, m.r, 0, TAU);
       ctx.fillStyle = m.color;
       ctx.fill();
-
       ctx.strokeStyle = "rgba(0,0,0,0.65)";
       ctx.lineWidth = 1.2;
       ctx.stroke();
@@ -895,7 +838,6 @@
       ctx.arc(star.sx, star.sy, 14, 0, TAU);
       ctx.fillStyle = star.color;
       ctx.fill();
-
       drawTextWithStroke(system.Name, star.sx, star.sy - 28, 13, "center");
 
       if (hovered === star || (state.selectedItem && state.selectedItem.kind === "system" && state.selectedItem.object === star.object)) {
@@ -914,12 +856,10 @@
 
     for (const m of markers) {
       if (m.isStar) continue;
-
       ctx.beginPath();
       ctx.arc(m.sx, m.sy, m.r, 0, TAU);
       ctx.fillStyle = m.color;
       ctx.fill();
-
       ctx.strokeStyle = "rgba(0,0,0,0.65)";
       ctx.lineWidth = 1.2;
       ctx.stroke();
@@ -929,11 +869,6 @@
         drawTextWithStroke(m.label, m.sx, m.sy + m.r + 12, 12, "center");
       }
     }
-  }
-
-  function shadeHexFromCss(css, amount) {
-    // Fallback shade for surface view: simple overlay, not exact color parsing.
-    return css;
   }
 
   function drawSurfaceView(width, height) {
@@ -977,7 +912,6 @@
     ctx.fillStyle = sphere;
     ctx.fill();
 
-    // Day / night split to suggest tidally locked worlds.
     ctx.save();
     ctx.beginPath();
     ctx.arc(cx, cy, r, 0, TAU);
@@ -999,31 +933,115 @@
     coords2El.textContent = getCurrentPathText();
 
     if (state.hoverItem) {
-      const item = state.hoverItem;
-      if (item.kind === "cluster") {
-        coords1El.textContent = `[${item.object.ClusterX}, ${item.object.ClusterY}]`;
-      } else if (item.kind === "system") {
-        coords1El.textContent = state.mode === "Galaxy"
-          ? `[${item.object.SpaceX}, ${item.object.SpaceY}]`
-          : `[${item.object.SpaceX}, ${item.object.SpaceY}]`;
-      } else if (item.kind === "body") {
-        coords1El.textContent = `[${item.object.SystemX}, ${item.object.SystemY}]`;
-      } else {
-        coords1El.textContent = "[?, ?]";
-      }
+      if (state.hoverItem.kind === "cluster") coords1El.textContent = `[${state.hoverItem.object.ClusterX}, ${state.hoverItem.object.ClusterY}]`;
+      else if (state.hoverItem.kind === "system") coords1El.textContent = `[${state.hoverItem.object.SpaceX}, ${state.hoverItem.object.SpaceY}]`;
+      else if (state.hoverItem.kind === "body") coords1El.textContent = `[${state.hoverItem.object.SystemX}, ${state.hoverItem.object.SystemY}]`;
+      else coords1El.textContent = "[?, ?]";
     } else {
       coords1El.textContent = "[?, ?]";
     }
 
-    if (!state.selectedItem && state.hoverItem) {
-      infoEl.textContent = getMarkerInfo(state.hoverItem);
-    } else if (state.selectedItem) {
-      infoEl.textContent = getMarkerInfo(state.selectedItem);
-    } else {
-      infoEl.textContent = "Right click a cluster, system, or body.";
+    infoEl.textContent = state.selectedItem ? getMarkerInfo(state.selectedItem) : "Right click a cluster, system, or body.";
+    hintEl.textContent = "Galaxy: clusters · Cluster: systems · System: bodies · WASD: move · Left drag: pan · Scroll: zoom · Left click: open · Middle click: select teleport target · Right click: info";
+  }
+
+  function getVisibleMarkers() {
+    const markers = [];
+
+    if (state.mode === "Galaxy") {
+      for (const cluster of state.catalog.clusters) {
+        markers.push({
+          kind: "cluster",
+          object: cluster,
+          wx: cluster.ClusterX,
+          wy: cluster.ClusterY,
+          r: clamp(9 + cluster.SystemCount * 0.04, 9, 18),
+          color: hsvToCss(fract((cluster.ClusterID % 1000) / 1000), 0.65, 1),
+          label: cluster.Name,
+        });
+      }
+      return markers;
     }
 
-    hintEl.textContent = "Galaxy: clusters · Cluster: systems · System: bodies · WASD: move · Scroll: zoom · Left click: open · Middle click: select teleport target · Right click: info";
+    if (state.mode === "Cluster") {
+      const cluster = state.currentCluster;
+      if (!cluster) return markers;
+      for (const system of cluster.Systems) {
+        markers.push({
+          kind: "system",
+          object: system,
+          cluster,
+          wx: system.SpaceX,
+          wy: system.SpaceY,
+          r: 6,
+          color: system.StarColor,
+          label: system.Name,
+        });
+      }
+      return markers;
+    }
+
+    if (state.mode === "System") {
+      const cluster = state.currentCluster;
+      const system = state.currentSystem;
+      if (!system) return markers;
+
+      markers.push({
+        kind: "system",
+        object: system,
+        cluster,
+        wx: 0,
+        wy: 0,
+        r: 14,
+        color: system.StarColor,
+        label: system.Name,
+        isStar: true,
+      });
+
+      for (const body of system.Bodies) {
+        markers.push({
+          kind: "body",
+          object: body,
+          cluster,
+          system,
+          wx: body.SystemX,
+          wy: body.SystemY,
+          r: clamp(body.Size / 24, 6, 26),
+          color: body.Color,
+          label: body.Name,
+        });
+      }
+      return markers;
+    }
+
+    if (state.mode === "Surface") {
+      const body = state.currentBody;
+      if (body) {
+        markers.push({
+          kind: "body",
+          object: body,
+          cluster: state.currentCluster,
+          system: state.currentSystem,
+          wx: 0,
+          wy: 0,
+          r: 0,
+          color: body.Color,
+          label: body.Name,
+        });
+      }
+    }
+
+    return markers;
+  }
+
+  function refreshHoverItem() {
+    const markers = getVisibleMarkers();
+    for (const m of markers) {
+      const p = worldToScreen(m.wx, m.wy);
+      m.sx = p.x;
+      m.sy = p.y;
+    }
+    state.hoverItem = state.mouseInside ? findMarkerAtScreen(state.mouseX, state.mouseY, markers) : null;
   }
 
   function render() {
@@ -1031,7 +1049,6 @@
     drawBackground(width, height);
 
     const markers = getVisibleMarkers();
-
     for (const m of markers) {
       const p = worldToScreen(m.wx, m.wy);
       m.sx = p.x;
@@ -1040,97 +1057,24 @@
 
     state.hoverItem = state.mouseInside ? findMarkerAtScreen(state.mouseX, state.mouseY, markers) : null;
 
-    if (state.mode === "Galaxy") {
-      drawClusterView(markers, state.hoverItem, width, height);
-    } else if (state.mode === "Cluster") {
-      drawClusterSystemView(markers, state.hoverItem, width, height);
-    } else if (state.mode === "System") {
-      drawSystemView(markers, state.hoverItem, width, height);
-    } else if (state.mode === "Surface") {
-      drawSurfaceView(width, height);
-    }
+    if (state.mode === "Galaxy") drawClusterView(markers, state.hoverItem);
+    else if (state.mode === "Cluster") drawClusterSystemView(markers, state.hoverItem);
+    else if (state.mode === "System") drawSystemView(markers, state.hoverItem);
+    else if (state.mode === "Surface") drawSurfaceView(width, height);
 
     updateUiTexts();
-    requestAnimationFrame(render);
   }
 
-  function getSelectionFromMouse() {
-    const markers = getVisibleMarkers();
-    for (const m of markers) {
-      const p = worldToScreen(m.wx, m.wy);
-      m.sx = p.x;
-      m.sy = p.y;
-    }
-    return findMarkerAtScreen(state.mouseX, state.mouseY, markers);
-  }
+  function applyPanFromDrag(clientX, clientY) {
+    const rect = canvas.getBoundingClientRect();
+    const dx = clientX - rect.left - state.dragStartX;
+    const dy = clientY - rect.top - state.dragStartY;
+    const scale = getModeScale();
 
-  function onPrimaryClick(item) {
-    if (!item) return;
-
-    if (item.kind === "cluster") {
-      setViewCluster(item.object);
-      return;
-    }
-
-    if (item.kind === "system") {
-      if (state.mode === "Galaxy") {
-        // Clicking a system only exists in cluster/system views, but keep it safe.
-        setViewSystem(item.object, item.cluster || state.currentCluster);
-      } else {
-        setViewSystem(item.object, item.cluster || state.currentCluster);
-      }
-      return;
-    }
-
-    if (item.kind === "body") {
-      setViewSurface(item.object, item.system || state.currentSystem, item.cluster || state.currentCluster);
-    }
-  }
-
-  function onMiddleClick(item) {
-    if (!item) return;
-    setSelection(item);
-  }
-
-  function onRightClick(item) {
-    if (!item) return;
-    setSelection(item);
-  }
-
-  function initSelection() {
-    const catalog = buildCatalog();
-    state.currentCluster = catalog.clusters[0] || null;
-    state.currentSystem = state.currentCluster ? state.currentCluster.Systems[0] || null : null;
-    state.currentBody = state.currentSystem ? state.currentSystem.Bodies[0] || null : null;
-    state.selectedItem = state.currentCluster ? { kind: "cluster", object: state.currentCluster } : null;
-    state.cameraX = state.currentCluster ? state.currentCluster.ClusterX : 0;
-    state.cameraY = state.currentCluster ? state.currentCluster.ClusterY : 0;
-    state.mode = "Galaxy";
-    state.zoom = 1;
-    infoEl.textContent = getMarkerInfo(state.selectedItem);
-  }
-
-  function stepMovement(dt) {
-    if (state.mode === "Surface") return;
-
-    const speedBase =
-      state.mode === "Galaxy" ? 30 :
-      state.mode === "Cluster" ? 22 : 18;
-
-    const speed = (speedBase / state.zoom) * dt;
-
-    if (state.keys.W) state.cameraY += speed;
-    if (state.keys.S) state.cameraY -= speed;
-    if (state.keys.A) state.cameraX -= speed;
-    if (state.keys.D) state.cameraX += speed;
-
+    state.cameraX = state.dragStartCameraX - (dx / scale);
+    state.cameraY = state.dragStartCameraY + (dy / scale);
     state.cameraX = clamp(state.cameraX, -150, 150);
     state.cameraY = clamp(state.cameraY, -150, 150);
-  }
-
-  function frameLoop() {
-    stepMovement(1 / 60);
-    render();
   }
 
   canvas.addEventListener("mousemove", (e) => {
@@ -1138,6 +1082,12 @@
     state.mouseX = e.clientX - rect.left;
     state.mouseY = e.clientY - rect.top;
     state.mouseInside = true;
+
+    if (state.dragging && state.dragPointerId !== null) {
+      applyPanFromDrag(e.clientX, e.clientY);
+      state.dragMoved = true;
+      return;
+    }
   });
 
   canvas.addEventListener("mouseleave", () => {
@@ -1149,58 +1099,76 @@
     e.preventDefault();
   });
 
-  canvas.addEventListener("mousedown", (e) => {
-    const item = getSelectionFromMouse();
+  canvas.addEventListener("pointerdown", (e) => {
+    const rect = canvas.getBoundingClientRect();
+    state.mouseX = e.clientX - rect.left;
+    state.mouseY = e.clientY - rect.top;
+    state.mouseInside = true;
+
+    const item = state.hoverItem || getVisibleMarkers().reduce((best, m) => best, null);
+    canvas.setPointerCapture(e.pointerId);
+
+    state.pressedButton = e.button;
+    state.pressedItem = state.hoverItem;
 
     if (e.button === 0) {
-      onPrimaryClick(item);
+      state.dragPointerId = e.pointerId;
+      state.dragStartX = e.clientX - rect.left;
+      state.dragStartY = e.clientY - rect.top;
+      state.dragStartCameraX = state.cameraX;
+      state.dragStartCameraY = state.cameraY;
+      state.dragMoved = false;
+      state.dragging = false;
     } else if (e.button === 1) {
-      e.preventDefault();
-      onMiddleClick(item);
+      if (state.hoverItem) setSelection(state.hoverItem);
     } else if (e.button === 2) {
-      onRightClick(item);
+      if (state.hoverItem) setSelection(state.hoverItem);
     }
   });
+
+  canvas.addEventListener("pointermove", (e) => {
+    const rect = canvas.getBoundingClientRect();
+    state.mouseX = e.clientX - rect.left;
+    state.mouseY = e.clientY - rect.top;
+    state.mouseInside = true;
+
+    if (state.dragPointerId === e.pointerId && state.pressedButton === 0) {
+      const dx = (e.clientX - rect.left) - state.dragStartX;
+      const dy = (e.clientY - rect.top) - state.dragStartY;
+      if (!state.dragging && Math.hypot(dx, dy) > 5) {
+        state.dragging = true;
+      }
+      if (state.dragging && state.mode !== "Surface") {
+        applyPanFromDrag(e.clientX, e.clientY);
+        state.dragMoved = true;
+      }
+    }
+  });
+
+  function endPointer(e) {
+    if (state.dragPointerId === e.pointerId && state.pressedButton === 0) {
+      const item = state.hoverItem;
+      const wasDrag = state.dragging && state.dragMoved;
+
+      if (!wasDrag && item) {
+        openItem(item);
+      }
+
+      state.dragPointerId = null;
+      state.dragging = false;
+      state.dragMoved = false;
+      state.pressedButton = -1;
+      state.pressedItem = null;
+    }
+  }
+
+  canvas.addEventListener("pointerup", endPointer);
+  canvas.addEventListener("pointercancel", endPointer);
 
   canvas.addEventListener("wheel", (e) => {
     e.preventDefault();
     state.zoom = clamp(state.zoom + (e.deltaY < 0 ? 0.12 : -0.12), 0.5, 3);
   }, { passive: false });
-
-  window.addEventListener("resize", resizeCanvas);
-
-  window.addEventListener("keydown", (e) => {
-    if (e.repeat) return;
-
-    if (e.key === "m" || e.key === "M") {
-      canvas.style.display = canvas.style.display === "none" ? "block" : "block";
-      return;
-    }
-
-    if (e.key === "w" || e.key === "W") state.keys.W = true;
-    if (e.key === "a" || e.key === "A") state.keys.A = true;
-    if (e.key === "s" || e.key === "S") state.keys.S = true;
-    if (e.key === "d" || e.key === "D") state.keys.D = true;
-    if (e.key === "Escape") {
-      if (state.mode === "Surface" && state.currentSystem) {
-        setViewSystem(state.currentSystem, state.currentCluster);
-      } else if (state.mode === "System" && state.currentCluster) {
-        setViewCluster(state.currentCluster);
-      } else if (state.mode === "Cluster") {
-        setViewGalaxy();
-      }
-    }
-    if (e.key === "Enter") {
-      teleportToSelection();
-    }
-  });
-
-  window.addEventListener("keyup", (e) => {
-    if (e.key === "w" || e.key === "W") state.keys.W = false;
-    if (e.key === "a" || e.key === "A") state.keys.A = false;
-    if (e.key === "s" || e.key === "S") state.keys.S = false;
-    if (e.key === "d" || e.key === "D") state.keys.D = false;
-  });
 
   backBtn.addEventListener("click", () => {
     if (state.mode === "Surface" && state.currentSystem) {
@@ -1220,7 +1188,69 @@
     teleportToSelection();
   });
 
+  window.addEventListener("resize", resizeCanvas);
+
+  window.addEventListener("keydown", (e) => {
+    if (e.repeat) return;
+
+    if (e.key === "m" || e.key === "M") {
+      canvas.style.display = canvas.style.display === "none" ? "block" : "block";
+      return;
+    }
+
+    if (e.key === "w" || e.key === "W") state.keys.W = true;
+    if (e.key === "a" || e.key === "A") state.keys.A = true;
+    if (e.key === "s" || e.key === "S") state.keys.S = true;
+    if (e.key === "d" || e.key === "D") state.keys.D = true;
+
+    if (e.key === "Escape") {
+      if (state.mode === "Surface" && state.currentSystem) setViewSystem(state.currentSystem, state.currentCluster);
+      else if (state.mode === "System" && state.currentCluster) setViewCluster(state.currentCluster);
+      else if (state.mode === "Cluster") setViewGalaxy();
+    }
+
+    if (e.key === "Enter") teleportToSelection();
+  });
+
+  window.addEventListener("keyup", (e) => {
+    if (e.key === "w" || e.key === "W") state.keys.W = false;
+    if (e.key === "a" || e.key === "A") state.keys.A = false;
+    if (e.key === "s" || e.key === "S") state.keys.S = false;
+    if (e.key === "d" || e.key === "D") state.keys.D = false;
+  });
+
+  function tick(ts) {
+    if (!tick.last) tick.last = ts;
+    const dt = Math.min((ts - tick.last) / 1000, 0.05);
+    tick.last = ts;
+
+    if (state.mode !== "Surface") {
+      const speedBase = state.mode === "Galaxy" ? 30 : state.mode === "Cluster" ? 22 : 18;
+      const speed = (speedBase / state.zoom) * dt;
+
+      if (state.keys.W) state.cameraY += speed;
+      if (state.keys.S) state.cameraY -= speed;
+      if (state.keys.A) state.cameraX -= speed;
+      if (state.keys.D) state.cameraX += speed;
+
+      state.cameraX = clamp(state.cameraX, -150, 150);
+      state.cameraY = clamp(state.cameraY, -150, 150);
+    }
+
+    render();
+    requestAnimationFrame(tick);
+  }
+
   resizeCanvas();
-  initSelection();
-  frameLoop();
+  buildCatalog();
+  state.currentCluster = state.catalog.clusters[0] || null;
+  state.currentSystem = state.currentCluster ? state.currentCluster.Systems[0] || null : null;
+  state.currentBody = state.currentSystem ? state.currentSystem.Bodies[0] || null : null;
+  state.selectedItem = state.currentCluster ? { kind: "cluster", object: state.currentCluster } : null;
+  state.cameraX = state.currentCluster ? state.currentCluster.ClusterX : 0;
+  state.cameraY = state.currentCluster ? state.currentCluster.ClusterY : 0;
+  infoEl.textContent = getMarkerInfo(state.selectedItem);
+
+  canvas.focus?.();
+  requestAnimationFrame(tick);
 })();
