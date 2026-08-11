@@ -692,6 +692,36 @@
       bodies.push(body);
     }
 
+    // ---------------------------------------------------------------
+    // WORMHOLE
+    //
+    // Realism constraint: wormholes are only found within a black hole's
+    // gravitational vicinity - never around ordinary stars, neutron
+    // stars, or pulsars. A black hole system has a flat 10% chance of
+    // hosting exactly one. A wormhole is NOT an orbiting body - it has no
+    // orbit, no OrbitRadius, and is never added to `Bodies`, since
+    // nothing orbits it and it doesn't orbit the black hole either (it's
+    // treated as a fixed local anomaly tied to the system itself). It is
+    // stored as its own `Wormhole` field on the system.
+    // ---------------------------------------------------------------
+    let wormhole = null;
+    if (starProfile.isBlackHole) {
+      const wormholeRng = makeRng(stableHash("wormhole", systemSeed));
+      if (wormholeRng.next() < 0.10) {
+        // Fixed position near the black hole, offset just enough to be
+        // visually distinct from the black hole marker itself. Not an
+        // orbit - this position never changes/animates.
+        const angle = wormholeRng.float(0, TAU);
+        const dist = wormholeRng.float(3, 6);
+        wormhole = {
+          Name: `${generateProcName(stableHash("wormholename", systemSeed))} Rift`,
+          SystemX: Math.floor(Math.cos(angle) * dist),
+          SystemY: Math.floor(Math.sin(angle) * dist),
+          StabilityPercent: Math.floor(wormholeRng.float(35, 98)),
+        };
+      }
+    }
+
     return {
       SystemID: systemSeed,
       Name: generateProcName(systemSeed),
@@ -707,6 +737,7 @@
       IsPulsar: !!starProfile.isPulsar,
       PlanetCount: planetCount,
       Bodies: bodies,
+      Wormhole: wormhole,
     };
   }
 
@@ -814,6 +845,7 @@
       if (obj.IsCompact) return "NEUTRON STAR";
       return "STAR";
     }
+    if (kind === "wormhole") return "WORMHOLE";
     return "PLANET";
   }
 
@@ -841,7 +873,23 @@
       }
 
       lines.push(`PLANETS     ${s.PlanetCount}`);
+      if (s.IsBlackHole) {
+        lines.push(`WORMHOLE    ${s.Wormhole ? "Detected" : "None detected"}`);
+      }
       lines.push(`COORDS      [${s.SpaceX}, ${s.SpaceY}]`);
+      return lines.join("\n");
+    }
+
+    if (item.kind === "wormhole") {
+      const w = item.object;
+      const lines = [
+        `${w.Name}`,
+        `CLASS       WORMHOLE`,
+        `STABILITY   ${w.StabilityPercent}%`,
+        `ORBIT       None — fixed anomaly`,
+        `HOST        Black hole gravitational well`,
+        `COORDS      [${w.SystemX}, ${w.SystemY}]`,
+      ];
       return lines.join("\n");
     }
 
@@ -959,6 +1007,22 @@
           r: clamp(body.Size / 24, 6, 26),
           color: body.Color,
           label: body.Name,
+        });
+      }
+
+      // Wormhole marker: fixed position, no orbit ring, not clickable
+      // into a sub-view (nothing "inside" a wormhole to open, unlike
+      // systems/bodies) - selectable for inspection only.
+      if (system.Wormhole) {
+        markers.push({
+          kind: "wormhole",
+          object: system.Wormhole,
+          system,
+          wx: system.Wormhole.SystemX,
+          wy: system.Wormhole.SystemY,
+          r: 9,
+          color: PALETTE.exotic,
+          label: system.Wormhole.Name,
         });
       }
 
@@ -1105,6 +1169,38 @@
     }
   }
 
+  function drawWormholeGlyph(x, y, r) {
+    // Distinct from planet/star glyphs: a rotating-look double ring with
+    // a dark violet core, since a wormhole is an anomaly, not a body with
+    // mass/orbit. No orbit ring is ever drawn for it (see drawSystemView,
+    // which only iterates system.Bodies for orbit rings).
+    const outer = ctx.createRadialGradient(x, y, 0, x, y, r * 2.2);
+    outer.addColorStop(0, "rgba(184,92,122,0.05)");
+    outer.addColorStop(0.7, "rgba(184,92,122,0.35)");
+    outer.addColorStop(1, "rgba(184,92,122,0)");
+    ctx.fillStyle = outer;
+    ctx.beginPath();
+    ctx.arc(x, y, r * 2.2, 0, TAU);
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.ellipse(x, y, r, r * 0.4, Math.PI / 4, 0, TAU);
+    ctx.strokeStyle = "rgba(232,167,82,0.85)";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.ellipse(x, y, r * 0.7, r * 0.28, -Math.PI / 4, 0, TAU);
+    ctx.strokeStyle = "rgba(111,211,199,0.85)";
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(x, y, r * 0.35, 0, TAU);
+    ctx.fillStyle = "#0a0510";
+    ctx.fill();
+  }
+
   function drawClusterView(markers, hovered) {
     for (const m of markers) {
       if (m.isBlackHole) {
@@ -1174,6 +1270,16 @@
 
     for (const m of markers) {
       if (m.isStar) continue;
+
+      if (m.kind === "wormhole") {
+        drawWormholeGlyph(m.sx, m.sy, m.r);
+
+        if (hovered === m || (state.selectedItem && state.selectedItem.kind === "wormhole" && state.selectedItem.object === m.object)) {
+          drawHalo(m.sx, m.sy, m.r + 8, "rgba(184,92,122,0.9)");
+        }
+        drawTextWithStroke(m.label, m.sx, m.sy + m.r + 14, 12, "center", PALETTE.exotic, true);
+        continue;
+      }
 
       ctx.beginPath();
       ctx.arc(m.sx, m.sy, m.r, 0, TAU);
