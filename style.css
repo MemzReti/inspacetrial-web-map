@@ -1,10 +1,29 @@
+:root {
+  --void-black: #05060a;
+  --panel-bg: rgba(10, 12, 18, 0.86);
+  --panel-border: rgba(242, 239, 233, 0.10);
+  --hairline: rgba(242, 239, 233, 0.14);
+  --starlight: #f2efe9;
+  --starlight-dim: rgba(242, 239, 233, 0.62);
+  --amber: #e8a752;
+  --cyan: #6fd3c7;
+  --exotic: #b85c7a;
+  --font-display: "Space Grotesk", Arial, Helvetica, sans-serif;
+  --font-mono: "IBM Plex Mono", "Courier New", monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
 html, body {
   margin: 0;
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: #06070a;
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--void-black);
+  font-family: var(--font-display);
+  color: var(--starlight);
 }
 
 #app {
@@ -17,7 +36,8 @@ html, body {
   width: 100%;
   height: 100%;
   display: block;
-  background: radial-gradient(circle at center, #0e1020 0%, #05060a 70%, #020203 100%);
+  background: radial-gradient(circle at center, #0c0e16 0%, #05060a 70%, #020203 100%);
+  cursor: grab;
 }
 
 #ui {
@@ -26,67 +46,316 @@ html, body {
   pointer-events: none;
 }
 
-button, #coords1, #coords2, #info, #hint {
+button, #jumpInput {
   pointer-events: auto;
 }
 
+/* ---------------------------------------------------------------- */
+/* Top bar: brand mark + live coordinate readout                     */
+/* ---------------------------------------------------------------- */
+
+#topBar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 22px;
+  pointer-events: none;
+}
+
+#brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  pointer-events: auto;
+}
+
+#brandMark {
+  color: var(--amber);
+  font-size: 18px;
+  line-height: 1;
+}
+
+#brandText {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 0.16em;
+  color: var(--starlight);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+
+#coordStack {
+  text-align: right;
+  pointer-events: auto;
+}
+
+.coordLine {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  letter-spacing: 0.03em;
+  color: var(--starlight);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+  line-height: 1.5;
+}
+
+.coordLineMuted {
+  color: var(--cyan);
+  font-size: 12px;
+  opacity: 0.9;
+}
+
+/* ---------------------------------------------------------------- */
+/* Buttons                                                            */
+/* ---------------------------------------------------------------- */
+
 #backBtn, #teleportBtn {
   position: absolute;
-  border: 0;
-  border-radius: 10px;
-  padding: 10px 14px;
-  color: white;
-  background: #252a36;
+  border: 1px solid var(--panel-border);
+  border-radius: 3px;
+  padding: 10px 16px;
+  color: var(--starlight);
+  background: var(--panel-bg);
+  backdrop-filter: blur(6px);
   cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+#backBtn:hover, #teleportBtn:hover {
+  border-color: var(--amber);
+}
+
+#backBtn:focus-visible, #teleportBtn:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
 }
 
 #backBtn {
-  left: 12px;
-  top: 12px;
+  left: 22px;
+  top: 76px;
 }
 
 #teleportBtn {
-  right: 12px;
-  bottom: 12px;
-  background: #1f4b2f;
+  right: 22px;
+  bottom: 24px;
+  background: rgba(31, 75, 47, 0.55);
+  border-color: rgba(232, 167, 82, 0.25);
+  color: var(--starlight);
 }
 
-#coords1, #coords2, #info, #hint {
+#teleportBtn:hover {
+  border-color: var(--amber);
+  background: rgba(31, 75, 47, 0.75);
+}
+
+/* ---------------------------------------------------------------- */
+/* Info panel — spectroscopy-readout styled object inspector          */
+/* ---------------------------------------------------------------- */
+
+#infoPanel {
   position: absolute;
-  color: white;
-  text-shadow: 0 1px 2px black;
-  white-space: pre-line;
+  right: 22px;
+  bottom: 74px;
+  width: 320px;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 4px;
+  backdrop-filter: blur(6px);
+  overflow: hidden;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
 }
 
-#coords1 {
-  right: 12px;
-  top: 12px;
-  font-size: 16px;
-  text-align: right;
+#infoPanelHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--hairline);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: var(--cyan);
 }
 
-#coords2 {
-  left: 12px;
-  top: 56px;
-  font-size: 16px;
+.infoDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--amber);
+  box-shadow: 0 0 8px var(--amber);
 }
 
 #info {
-  right: 12px;
-  bottom: 62px;
-  width: 320px;
-  min-height: 180px;
-  background: rgba(15, 15, 20, 0.85);
-  border-radius: 12px;
-  padding: 12px;
-  box-sizing: border-box;
-  font-size: 14px;
-  line-height: 1.4;
+  padding: 14px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.75;
+  white-space: pre-line;
+  color: var(--starlight-dim);
+  min-height: 120px;
 }
 
+/* ---------------------------------------------------------------- */
+/* Hint bar                                                           */
+/* ---------------------------------------------------------------- */
+
 #hint {
-  left: 12px;
-  bottom: 12px;
+  position: absolute;
+  left: 22px;
+  bottom: 24px;
+  max-width: 60vw;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.01em;
+  color: var(--starlight-dim);
+  text-shadow: 0 1px 2px black;
+}
+
+/* ---------------------------------------------------------------- */
+/* Jump / navigation control panel (created in JS)                    */
+/* ---------------------------------------------------------------- */
+
+#controlPanel {
+  position: absolute;
+  left: 22px;
+  bottom: 68px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+}
+
+#jumpRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  pointer-events: auto;
+}
+
+#jumpInput {
+  width: 220px;
+  padding: 10px 12px;
+  border: 1px solid var(--panel-border);
+  border-radius: 3px;
+  background: var(--panel-bg);
+  backdrop-filter: blur(6px);
+  color: var(--starlight);
+  outline: none;
+  font-family: var(--font-mono);
   font-size: 12px;
-  opacity: 0.85;
+}
+
+#jumpInput::placeholder {
+  color: rgba(242, 239, 233, 0.35);
+}
+
+#jumpInput:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 1px;
+}
+
+.panelBtn {
+  padding: 10px 14px;
+  border: 1px solid var(--panel-border);
+  border-radius: 3px;
+  background: var(--panel-bg);
+  backdrop-filter: blur(6px);
+  color: var(--starlight);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.03em;
+  transition: border-color 0.15s ease;
+}
+
+.panelBtn:hover {
+  border-color: var(--amber);
+}
+
+.panelBtn:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+}
+
+.panelBtnAccent {
+  background: rgba(31, 75, 47, 0.55);
+  border-color: rgba(232, 167, 82, 0.25);
+}
+
+.panelBtnAccent:hover {
+  background: rgba(31, 75, 47, 0.75);
+  border-color: var(--amber);
+}
+
+/* Directional pad */
+#dpad {
+  display: grid;
+  grid-template-columns: 44px 44px 44px;
+  grid-template-rows: 44px 44px 44px;
+  grid-template-areas:
+    ".    up    ."
+    "left .     right"
+    ".    down  .";
+  gap: 6px;
+  width: 144px;
+  pointer-events: auto;
+}
+
+.padBtn {
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  background: var(--panel-bg);
+  backdrop-filter: blur(6px);
+  color: var(--starlight);
+  font-size: 15px;
+  cursor: pointer;
+  user-select: none;
+  touch-action: none;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.padBtn:hover {
+  border-color: var(--cyan);
+}
+
+.padBtn:active {
+  background: rgba(111, 211, 199, 0.18);
+}
+
+/* ---------------------------------------------------------------- */
+/* Reduced motion                                                     */
+/* ---------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+  }
+}
+
+/* ---------------------------------------------------------------- */
+/* Small screens                                                      */
+/* ---------------------------------------------------------------- */
+
+@media (max-width: 720px) {
+  #infoPanel {
+    width: 260px;
+  }
+  #hint {
+    max-width: 90vw;
+    font-size: 10px;
+  }
+  #brandText {
+    display: none;
+  }
 }
