@@ -1,855 +1,1557 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Deep Space Universe Map</title>
-  <style>
-    * {
-      box-sizing: border-box;
-      user-select: none;
-    }
-    html, body {
-      margin: 0;
-      padding: 0;
-      width: 100%;
-      height: 100%;
-      overflow: hidden;
-      background: #030408;
-      font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-      color: #e2e8f0;
-    }
-    #app {
-      position: relative;
-      width: 100vw;
-      height: 100vh;
-    }
-    #map {
-      width: 100%;
-      height: 100%;
-      display: block;
-      background: #030408;
-    }
-    #ui {
-      position: absolute;
-      inset: 0;
-      pointer-events: none;
-    }
-    .glass-panel {
-      pointer-events: auto;
-      background: rgba(13, 17, 28, 0.75);
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      border-radius: 14px;
-      box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
-    }
-    /* Top Bar */
-    #topBar {
-      position: absolute;
-      top: 16px;
-      left: 16px;
-      right: 16px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 10px 16px;
-    }
-    #navPath {
-      font-size: 15px;
-      font-weight: 600;
-      letter-spacing: 0.5px;
-      color: #38bdf8;
-    }
-    #coordsBadge {
-      font-family: monospace;
-      font-size: 14px;
-      background: rgba(56, 189, 248, 0.1);
-      border: 1px solid rgba(56, 189, 248, 0.3);
-      padding: 4px 10px;
-      border-radius: 6px;
-      color: #7dd3fc;
-    }
-    /* Buttons */
-    .btn {
-      pointer-events: auto;
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      border-radius: 10px;
-      padding: 8px 16px;
-      color: #ffffff;
-      background: rgba(30, 41, 59, 0.8);
-      font-weight: 600;
-      font-size: 13px;
-      cursor: pointer;
-      transition: all 0.2s ease;
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-    }
-    .btn:hover {
-      background: rgba(51, 65, 85, 0.9);
-      border-color: #38bdf8;
-      box-shadow: 0 0 12px rgba(56, 189, 248, 0.3);
-    }
-    .btn-green {
-      background: rgba(20, 83, 45, 0.8);
-      border-color: rgba(34, 197, 94, 0.4);
-    }
-    .btn-green:hover {
-      background: rgba(22, 101, 52, 0.9);
-      border-color: #22c55e;
-      box-shadow: 0 0 12px rgba(34, 197, 94, 0.4);
-    }
-    /* Info Card */
-    #infoCard {
-      position: absolute;
-      right: 16px;
-      bottom: 16px;
-      width: 320px;
-      padding: 16px;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-    #infoTitle {
-      font-size: 18px;
-      font-weight: 700;
-      color: #f8fafc;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-      padding-bottom: 6px;
-    }
-    #infoBody {
-      font-size: 13px;
-      line-height: 1.6;
-      color: #cbd5e1;
-    }
-    .info-row {
-      display: flex;
-      justify-content: space-between;
-      margin-bottom: 4px;
-    }
-    .info-label {
-      color: #94a3b8;
-    }
-    .info-value {
-      font-weight: 600;
-      color: #f1f5f9;
-    }
-    .badge {
-      display: inline-block;
-      padding: 2px 8px;
-      border-radius: 4px;
-      font-size: 11px;
-      font-weight: 700;
-      text-transform: uppercase;
-    }
-    /* Controls Overlay */
-    #controlsPanel {
-      position: absolute;
-      left: 16px;
-      bottom: 16px;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-    #jumpRow {
-      display: flex;
-      gap: 8px;
-    }
-    #jumpInput {
-      pointer-events: auto;
-      width: 180px;
-      padding: 8px 12px;
-      border-radius: 8px;
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      background: rgba(15, 23, 42, 0.8);
-      color: white;
-      outline: none;
-      font-size: 13px;
-    }
-    #jumpInput:focus {
-      border-color: #38bdf8;
-    }
-    #hint {
-      font-size: 11px;
-      color: #64748b;
-      max-width: 380px;
-    }
-  </style>
-</head>
-<body>
-  <div id="app">
-    <canvas id="map"></canvas>
-    
-    <div id="ui">
-      <!-- Top Header Navigation -->
-      <div id="topBar" class="glass-panel">
-        <div style="display: flex; gap: 10px; align-items: center;">
-          <button id="backBtn" class="btn">◀ Back</button>
-          <div id="navPath">Cluster Overview</div>
-        </div>
-        <div id="coordsBadge">Target: [?, ?]</div>
-      </div>
+(() => {
+  "use strict";
 
-      <!-- Left Controls Panel -->
-      <div id="controlsPanel">
-        <div id="jumpRow">
-          <input id="jumpInput" type="text" placeholder="Coordinates e.g. 12, -8" />
-          <button id="goBtn" class="btn">Go</button>
-        </div>
-        <div id="hint" class="glass-panel" style="padding: 8px 12px;">
-          🎮 WASD / Drag: Pan · Scroll: Zoom · Left Click: Open · Right Click: Info
-        </div>
-      </div>
+  const TAU = Math.PI * 2;
 
-      <!-- Right Info Card -->
-      <div id="infoCard" class="glass-panel">
-        <div id="infoTitle">System Information</div>
-        <div id="infoBody">Right click any star system or planet to inspect details.</div>
-        <button id="teleportBtn" class="btn btn-green" style="width: 100%; justify-content: center; margin-top: 6px;">
-          🚀 Enter System / Surface
-        </button>
-      </div>
-    </div>
-  </div>
+  const CONFIG = {
+    seed: 9115,
+    clusterCount: 16,
+    clusterMinCoord: -150,
+    clusterMaxCoord: 150,
+    systemCountMin: 100,
+    systemCountMax: 150,
+    galaxyScale: 16,
+    clusterScale: 18,
+    systemScale: 22,
+    starCount: 180,
+  };
 
-  <script>
-    "use strict";
+  const NAME_A = [
+    "Ash","Bel","Cor","Dal","Esh","Fyr","Gal","Hex","Iru","Jex",
+    "Kel","Lum","Mev","Nox","Orv","Pex","Qur","Rex","Syx","Tel",
+    "Ulv","Vex","Wor","Xen","Yar","Zel","Brev","Cyn","Eph","Grel",
+    "Keth","Lyv","Myr","Nev","Oph","Pral","Quil","Riv","Stel","Thar",
+    "Vor","Wyv","Dov","Frel","Hux","Zeph","Trev","Drel","Crav","Meth",
+    "Lix","Sorn","Phel","Yorv","Varn","Cres","Dax","Ulm","Ith","Jor"
+  ];
 
-    const TAU = Math.PI * 2;
+  const NAME_B = [
+    "al","an","el","en","ir","ix","on","or","ul","ur",
+    "ax","ex","ov","um","av","em","yr","ob","ag","ec",
+    "id","og","ud","ak","ek","ok","ar","er","ot","ut",
+    "is","as","es","os","un","il","yl","op","enx","olv"
+  ];
 
-    // --- CONFIGURATION & GENERATION SPECS ---
-    const CONFIG = {
-      seed: 88219,
-      totalStars: 100,
-      mapRadius: 160,
-      scale: 18,
+  const NAME_C = [
+    "ara","eth","ion","ova","ula","ani","eum","iro","oma","ura",
+    "ane","eis","ite","ono","uri","ora","alis","urus","aris","eon",
+    "oria","yra","elle","aris","uvis","enos","une","oriax","ivia"
+  ];
+
+  const BODY_NAMES = [
+    "Platipus","Congratie","Julie","Juyna","Aurelia","Mira","Nova","Vela",
+    "Kora","Luna","Orlena","Saffy","Mallow","Iona","Tessia","Elara",
+    "Cinder","Rivie","Daphne","Nerina","Tindra","Calyx","Moxie","Anika",
+    "Sorrel","Eos","Ylva","Maren","Solene","Pavia","Liora","Zinnia",
+    "Orchid","Pax","Runa","Sora","Talia","Yuna","Zuri","Astra",
+    "Myra","Nessa","Pella","Vion","Cora","Levia","Aira","Nola"
+  ];
+
+  const BODY_SUFFIXES = ["", "", "", "", " 2", " 4", " 7", " 12", " 19", " 33", " 88", " 200", " Prime", " IV", " VII"];
+  const STAR_TYPES = ["Red Dwarf", "Yellow Star", "Blue Giant", "White Star", "Orange Star"];
+  const TERRAINS = ["Rocky", "Desert", "Ocean", "Temperate", "Barren", "Volcanic", "Frozen", "Metal"];
+
+  const canvas = document.getElementById("map");
+  const ctx = canvas.getContext("2d", { alpha: true });
+
+  const backBtn = document.getElementById("backBtn");
+  const teleportBtn = document.getElementById("teleportBtn");
+  const coords1El = document.getElementById("coords1");
+  const coords2El = document.getElementById("coords2");
+  const infoEl = document.getElementById("info");
+  const hintEl = document.getElementById("hint");
+
+  const state = {
+    seed: CONFIG.seed,
+    catalog: null,
+    mode: "Galaxy", // Galaxy, Cluster, System, Surface
+    currentCluster: null,
+    currentSystem: null,
+    currentBody: null,
+    selectedItem: null,
+    hoverItem: null,
+    cameraX: 0,
+    cameraY: 0,
+    zoom: 1,
+    mouseX: 0,
+    mouseY: 0,
+    mouseInside: false,
+    keys: { W: false, A: false, S: false, D: false },
+    moveKeys: { up: false, down: false, left: false, right: false },
+    stars: [],
+    uiCreated: false,
+
+    dragging: false,
+    dragPointerId: null,
+    dragStartX: 0,
+    dragStartY: 0,
+    dragStartCameraX: 0,
+    dragStartCameraY: 0,
+    dragMoved: false,
+    pressedButton: -1,
+    pressedItem: null,
+  };
+
+  function clamp(v, a, b) {
+    return Math.max(a, Math.min(b, v));
+  }
+
+  function fract(n) {
+    return n - Math.floor(n);
+  }
+
+  function key2(a, b) {
+    return `${a},${b}`;
+  }
+
+  function stableHash(...args) {
+    const s = args.map(v => String(v)).join("|");
+    let h = 7;
+    for (let i = 0; i < s.length; i++) {
+      h = (Math.imul(h, 131) + s.charCodeAt(i) + i) % 2147483647;
+    }
+    return Math.abs(h);
+  }
+
+  function makeRng(seed) {
+    let t = seed >>> 0;
+    const next = () => {
+      t += 0x6D2B79F5;
+      let x = t;
+      x = Math.imul(x ^ (x >>> 15), x | 1);
+      x ^= x + Math.imul(x ^ (x >>> 7), x | 61);
+      return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
     };
-
-    // Planetary Types and Properties
-    const PLANET_TYPES = {
-      Safe: { color: "#38bdf8", desc: "Safe starting worlds; rich in basic metallic resources like iron, copper, and coal." },
-      Terra: { color: "#22c55e", desc: "Hospitable worlds with diverse biomes, oceans, and varied materials." },
-      Forest: { color: "#15803d", desc: "Green environments filled with dense vegetation and building timber." },
-      Tundra: { color: "#94a3b8", desc: "Cold, snow-covered icy landscapes with specialized environmental conditions." },
-      Desert: { color: "#f59e0b", desc: "Arid, sand-dominant regions with extreme heat and sparse vegetation." },
-      Barren: { color: "#78716c", desc: "Rugged, ore-rich rocky worlds optimized for heavy mining." },
-      Exotic: { color: "#a855f7", desc: "Randomized continents, deep trenches, tall peaks, and bizarre materials." },
-      GasGiant: { color: "#f97316", desc: "Massive gas spheres with extreme weather and resource-rich ring systems." },
-      Volcanic: { color: "#ef4444", desc: "Molten lava worlds with fierce tectonic activity and high warmth." },
-      IceWorld: { color: "#06b6d4", desc: "Opposite of volcanic; extreme deep-frozen glacier environments." }
+    return {
+      next,
+      float(min = 0, max = 1) {
+        return min + next() * (max - min);
+      },
+      int(min, max) {
+        return Math.floor(this.float(min, max + 1));
+      },
+      pick(arr) {
+        return arr[this.int(0, arr.length - 1)];
+      },
     };
+  }
 
-    const NAME_A = ["Aegis","Boreas","Cygnus","Drakon","Elysium","Helios","Hyperion","Ignis","Kratos","Lumina","Nexus","Orion","Pyros","Solaria","Titan","Vesper","Zephyrus","Astra","VORTEX","Solis"];
-    const NAME_B = ["Prime","Major","Minor","Zero","IX","IV","VII","Alpha","Omega","Core","Reach","Haven","Deep","Nova"];
+  function hsvToRgb(h, s, v) {
+    h = fract(h);
+    s = clamp(s, 0, 1);
+    v = clamp(v, 0, 1);
 
-    // App State
-    const state = {
-      mode: "Cluster", // Cluster, System, Surface
-      currentSystem: null,
-      currentBody: null,
-      selectedItem: null,
-      hoverItem: null,
-      cameraX: 0,
-      cameraY: 0,
-      zoom: 1,
-      mouseX: 0,
-      mouseY: 0,
-      mouseInside: false,
-      dragging: false,
-      dragStartX: 0,
-      dragStartY: 0,
-      dragCamX: 0,
-      dragCamY: 0,
-      keys: { w: false, a: false, s: false, d: false },
-      catalog: [],
-      starsBg: []
-    };
+    const i = Math.floor(h * 6);
+    const f = h * 6 - i;
+    const p = v * (1 - s);
+    const q = v * (1 - f * s);
+    const t = v * (1 - (1 - f) * s);
 
-    // Helper Math & RNG
-    function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
-    
-    function makeRng(seed) {
-      let t = seed >>> 0;
-      return {
-        next() {
-          t += 0x6D2B79F5;
-          let x = t;
-          x = Math.imul(x ^ (x >>> 15), x | 1);
-          x ^= x + Math.imul(x ^ (x >>> 7), x | 61);
-          return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
-        },
-        float(min = 0, max = 1) { return min + this.next() * (max - min); },
-        int(min, max) { return Math.floor(this.float(min, max + 1)); },
-        pick(arr) { return arr[this.int(0, arr.length - 1)]; }
-      };
+    let r = 0, g = 0, b = 0;
+    switch (i % 6) {
+      case 0: r = v; g = t; b = p; break;
+      case 1: r = q; g = v; b = p; break;
+      case 2: r = p; g = v; b = t; break;
+      case 3: r = p; g = q; b = v; break;
+      case 4: r = t; g = p; b = v; break;
+      case 5: r = v; g = p; b = q; break;
     }
 
-    // --- CATALOG GENERATOR (1 Cluster, 100 Stars) ---
-    function generateUniverseCatalog() {
-      const rng = makeRng(CONFIG.seed);
-      const catalog = [];
-      const usedPos = {};
+    return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
+  }
 
-      // Star Distribution Setup (Strict total = 100)
-      const starTypeList = [];
-      for (let i = 0; i < 25; i++) starTypeList.push("Neutron Star");
-      for (let i = 0; i < 15; i++) starTypeList.push("Pulsar");
-      for (let i = 0; i < 15; i++) starTypeList.push("Black Hole");
-      
-      const standardTypes = ["Yellow Star", "Red Dwarf", "Blue Giant", "White Dwarf", "Orange Star"];
-      while (starTypeList.length < 100) {
-        starTypeList.push(rng.pick(standardTypes));
+  function hsvToCss(h, s, v) {
+    const [r, g, b] = hsvToRgb(h, s, v);
+    return `rgb(${r}, ${g}, ${b})`;
+  }
+
+  function rgbToCss(r, g, b) {
+    return `rgb(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)})`;
+  }
+
+  function chooseClusterPosition(rng, used) {
+    let x, y, k;
+    let tries = 0;
+
+    do {
+      tries++;
+      const angle = rng.float(0, TAU);
+      const radius = rng.float(20, 148);
+
+      const stretchX = 1.0 + Math.sin(angle * 2) * 0.15;
+      const stretchY = 0.78 + Math.cos(angle * 3) * 0.10;
+
+      x = Math.floor(Math.cos(angle) * radius * stretchX);
+      y = Math.floor(Math.sin(angle) * radius * stretchY);
+
+      x = clamp(x, CONFIG.clusterMinCoord, CONFIG.clusterMaxCoord);
+      y = clamp(y, CONFIG.clusterMinCoord, CONFIG.clusterMaxCoord);
+
+      if (x === 0 && y === 0) x = 1;
+      k = key2(x, y);
+    } while (used[k] && tries < 300);
+
+    return { x, y, k };
+  }
+
+  function chooseLocalPosition(rng, used, minRadius, maxRadius) {
+    let x, y, k;
+    let tries = 0;
+
+    do {
+      tries++;
+      const angle = rng.float(0, TAU);
+      const radius = rng.float(minRadius, maxRadius);
+      x = Math.floor(Math.cos(angle) * radius);
+      y = Math.floor(Math.sin(angle) * radius);
+      k = key2(x, y);
+    } while (used[k] && tries < 200);
+
+    return { x, y, k };
+  }
+
+  function generateProcName(seed) {
+    const rng = makeRng(seed + 8191);
+    const a = rng.pick(NAME_A);
+    const b = rng.pick(NAME_B);
+    const c = rng.pick(NAME_C);
+    const style = rng.int(1, 4);
+    const num = rng.int(10, 9999);
+
+    if (style === 1) return a + c;
+    if (style === 2) return a + b + c;
+    if (style === 3) return `${a} ${num}`;
+    return `${a}-${num}`;
+  }
+
+  function generateBodyName(seed, usedNames) {
+    const rng = makeRng(seed + 271828);
+    const base = rng.pick(BODY_NAMES);
+    const suffix = rng.pick(BODY_SUFFIXES);
+    let name = base + suffix;
+    let tries = 0;
+
+    while (usedNames[name] && tries < 30) {
+      tries++;
+      name = `${base}${suffix}-${rng.int(2, 99)}`;
+    }
+
+    usedNames[name] = true;
+    return name;
+  }
+
+  function planetClassToColor(rng, cls, terrain) {
+    if (cls === "Gas Giant") {
+      return hsvToCss(rng.float(0.07, 0.13), rng.float(0.35, 0.75), rng.float(0.75, 1));
+    }
+    if (cls === "Ice Giant") {
+      return hsvToCss(rng.float(0.50, 0.58), rng.float(0.20, 0.55), rng.float(0.80, 1));
+    }
+
+    if (terrain === "Ocean") {
+      return hsvToCss(0.58, rng.float(0.45, 0.80), rng.float(0.70, 1));
+    }
+    if (terrain === "Temperate") {
+      return hsvToCss(rng.float(0.25, 0.42), rng.float(0.35, 0.70), rng.float(0.65, 0.95));
+    }
+    if (terrain === "Desert") {
+      return hsvToCss(rng.float(0.08, 0.12), rng.float(0.35, 0.70), rng.float(0.70, 1));
+    }
+    if (terrain === "Volcanic") {
+      return hsvToCss(rng.float(0.00, 0.04), rng.float(0.60, 0.95), rng.float(0.70, 1));
+    }
+    if (terrain === "Frozen") {
+      return hsvToCss(0.53, rng.float(0.10, 0.35), rng.float(0.85, 1));
+    }
+    if (terrain === "Metal") {
+      return hsvToCss(rng.float(0.08, 0.12), rng.float(0.05, 0.35), rng.float(0.50, 0.95));
+    }
+    if (terrain === "Barren") {
+      return hsvToCss(rng.float(0.05, 0.12), rng.float(0.12, 0.35), rng.float(0.35, 0.75));
+    }
+
+    return hsvToCss(rng.next(), rng.float(0.15, 0.65), rng.float(0.55, 1));
+  }
+
+  function createPlanetBody(systemSeed, bodyId, orbitRadius, starTemperature, rng) {
+    const classRoll = rng.next();
+    let cls;
+    if (classRoll < 0.68) cls = "Terrestrial";
+    else if (classRoll < 0.84) cls = "Gas Giant";
+    else cls = "Ice Giant";
+
+    let terrain = cls;
+    if (cls === "Terrestrial") {
+      terrain = rng.pick(TERRAINS);
+    }
+
+    let size;
+    if (cls === "Terrestrial") size = rng.int(25, 60);
+    else if (cls === "Gas Giant") size = rng.int(400, 1000);
+    else size = rng.int(150, 450);
+
+    let gravity;
+    if (cls === "Gas Giant") gravity = rng.float(1.8, 4.5);
+    else if (cls === "Ice Giant") gravity = rng.float(0.8, 2.8);
+    else gravity = rng.float(0.1, 2.0);
+
+    const roughness = rng.int(0, 5);
+    const temperature = Math.floor(starTemperature - (orbitRadius * 75) + rng.float(-55, 55));
+
+    let breathable = false;
+    let hasLife = false;
+    let lifeType = "None";
+
+    if (cls === "Terrestrial") {
+      breathable =
+        (terrain === "Ocean" || terrain === "Temperate") &&
+        temperature >= 260 && temperature <= 330 &&
+        gravity >= 0.7 && gravity <= 1.4 &&
+        rng.next() > 0.30;
+
+      if (breathable && rng.next() < 0.22) {
+        hasLife = true;
+        lifeType = rng.next() < 0.72 ? "Plant" : "Fungus";
+      } else if (rng.next() < 0.05 && (terrain === "Frozen" || terrain === "Volcanic")) {
+        hasLife = true;
+        lifeType = "Fungus";
       }
+    }
 
-      // Shuffle star types
-      for (let i = starTypeList.length - 1; i > 0; i--) {
-        const j = Math.floor(rng.next() * (i + 1));
-        [starTypeList[i], starTypeList[j]] = [starTypeList[j], starTypeList[i]];
-      }
+    const color = planetClassToColor(rng, cls, terrain);
+    const hasRings =
+      cls !== "Terrestrial"
+        ? rng.next() < 0.35
+        : terrain === "Frozen" && rng.next() < 0.15;
 
-      // Generate 100 Star Systems
-      for (let i = 0; i < 100; i++) {
-        const type = starTypeList[i];
-        let x, y, k;
-        let tries = 0;
+    let tidallyLocked =
+      orbitRadius <= 6 ? rng.next() < 0.80 :
+      orbitRadius <= 10 ? rng.next() < 0.35 :
+      rng.next() < 0.10;
 
-        // Choose spatial coordinates in cluster
-        do {
-          const angle = rng.float(0, TAU);
-          const dist = Math.pow(rng.float(0.1, 1), 0.8) * CONFIG.mapRadius;
-          x = Math.floor(Math.cos(angle) * dist);
-          y = Math.floor(Math.sin(angle) * dist);
-          k = `${x},${y}`;
-          tries++;
-        } while (usedPos[k] && tries < 500);
+    if (cls === "Terrestrial" && terrain === "Temperate" && breathable) {
+      tidallyLocked = false;
+    }
 
-        usedPos[k] = true;
+    return {
+      BodyID: bodyId,
+      OrbitRadius: orbitRadius,
+      Class: cls,
+      Type: terrain,
+      Size: size,
+      Color: color,
+      Gravity: gravity,
+      Roughness: roughness,
+      Temperature: temperature,
+      Breathable: breathable,
+      HasLife: hasLife,
+      LifeType: lifeType,
+      HasRings: hasRings,
+      TidallyLocked: tidallyLocked,
+    };
+  }
 
-        // Physical Properties
-        let size, mass, color, temp;
-        if (type === "Black Hole") {
-          size = 5; // 50% smaller than average stars (avg ~10)
-          mass = 2.5; // 150% heavier
-          color = "#000000";
-          temp = 0;
-        } else if (type === "Neutron Star") {
-          size = 4; // Very small
-          mass = 2.0; // Very heavy
-          color = "#38bdf8";
-          temp = 100000;
-        } else if (type === "Pulsar") {
-          size = 4; // Very small
-          mass = 2.2; // Heavy
-          color = "#a855f7";
-          temp = 120000;
-        } else if (type === "Blue Giant") {
-          size = 18; mass = 1.8; color = "#60a5fa"; temp = 25000;
-        } else if (type === "Red Dwarf") {
-          size = 8; mass = 0.5; color = "#ef4444"; temp = 3200;
-        } else {
-          size = 11; mass = 1.0; color = "#facc15"; temp = 5800;
+  function makeFixedBody(data) {
+    return {
+      BodyID: data.BodyID,
+      Name: data.Name,
+      SystemX: data.SystemX,
+      SystemY: data.SystemY,
+      OrbitRadius: data.OrbitRadius,
+      Class: data.Class,
+      Type: data.Type,
+      Size: data.Size,
+      Color: data.Color,
+      Gravity: data.Gravity,
+      Roughness: data.Roughness,
+      Temperature: data.Temperature,
+      Breathable: data.Breathable,
+      HasLife: data.HasLife || false,
+      LifeType: data.LifeType || "None",
+      HasRings: data.HasRings || false,
+      TidallyLocked: data.TidallyLocked || false,
+    };
+  }
+
+  function makeSolCluster() {
+    const bodies = [
+      makeFixedBody({
+        BodyID: 1, Name: "Mercury", SystemX: 2, SystemY: 0, OrbitRadius: 2,
+        Class: "Terrestrial", Type: "Barren", Size: 48,
+        Color: "rgb(169, 159, 149)", Gravity: 0.38, Roughness: 4, Temperature: 440,
+        Breathable: false, HasRings: false, TidallyLocked: true
+      }),
+      makeFixedBody({
+        BodyID: 2, Name: "Venus", SystemX: -4, SystemY: 1, OrbitRadius: 4,
+        Class: "Terrestrial", Type: "Desert", Size: 115,
+        Color: "rgb(220, 160, 90)", Gravity: 0.91, Roughness: 5, Temperature: 737,
+        Breathable: false, HasRings: false, TidallyLocked: true
+      }),
+      makeFixedBody({
+        BodyID: 3, Name: "Earth", SystemX: 6, SystemY: -1, OrbitRadius: 6,
+        Class: "Terrestrial", Type: "Temperate", Size: 116,
+        Color: "rgb(60, 120, 200)", Gravity: 1.00, Roughness: 2, Temperature: 288,
+        Breathable: true, HasLife: true, LifeType: "Plant", HasRings: false, TidallyLocked: false
+      }),
+      makeFixedBody({
+        BodyID: 4, Name: "Mars", SystemX: -8, SystemY: -2, OrbitRadius: 8,
+        Class: "Terrestrial", Type: "Desert", Size: 62,
+        Color: "rgb(200, 80, 40)", Gravity: 0.38, Roughness: 3, Temperature: 210,
+        Breathable: false, HasRings: false, TidallyLocked: false
+      }),
+      makeFixedBody({
+        BodyID: 5, Name: "Jupiter", SystemX: 14, SystemY: 3, OrbitRadius: 14,
+        Class: "Gas Giant", Type: "Gas Giant", Size: 170,
+        Color: "rgb(210, 165, 115)", Gravity: 2.53, Roughness: 1, Temperature: 165,
+        Breathable: false, HasRings: false, TidallyLocked: false
+      }),
+      makeFixedBody({
+        BodyID: 6, Name: "Saturn", SystemX: -19, SystemY: -4, OrbitRadius: 19,
+        Class: "Gas Giant", Type: "Gas Giant", Size: 155,
+        Color: "rgb(230, 200, 160)", Gravity: 1.07, Roughness: 1, Temperature: 134,
+        Breathable: false, HasRings: true, TidallyLocked: false
+      }),
+      makeFixedBody({
+        BodyID: 7, Name: "Uranus", SystemX: 25, SystemY: 5, OrbitRadius: 25,
+        Class: "Ice Giant", Type: "Frozen", Size: 128,
+        Color: "rgb(175, 220, 230)", Gravity: 0.89, Roughness: 2, Temperature: 76,
+        Breathable: false, HasRings: true, TidallyLocked: false
+      }),
+      makeFixedBody({
+        BodyID: 8, Name: "Neptune", SystemX: -31, SystemY: -6, OrbitRadius: 31,
+        Class: "Ice Giant", Type: "Frozen", Size: 125,
+        Color: "rgb(60, 80, 200)", Gravity: 1.12, Roughness: 2, Temperature: 72,
+        Breathable: false, HasRings: false, TidallyLocked: false
+      }),
+    ];
+
+    const solSystem = {
+      SystemID: stableHash("real", "Sol"),
+      Name: "Sol",
+      SpaceX: 0,
+      SpaceY: 0,
+      StarType: "Yellow Star",
+      StarColor: "rgb(255, 224, 100)",
+      StarTemperature: 5778,
+      PlanetCount: bodies.length,
+      Bodies: bodies,
+      HasDyson: false,
+    };
+
+    return {
+      ClusterID: stableHash("realcluster", "Sol"),
+      Name: "Sol Cluster",
+      ClusterX: 0,
+      ClusterY: 0,
+      SystemCount: 1,
+      Systems: [solSystem],
+    };
+  }
+
+  function buildCluster(clusterSeed, clusterX, clusterY, clusterIndex) {
+    const clusterRng = makeRng(clusterSeed);
+    const clusterName = `${generateProcName(clusterSeed)} Cluster`;
+    const clusterID = stableHash("cluster", state.seed, clusterX, clusterY, clusterIndex);
+    const systemCount = clusterRng.int(CONFIG.systemCountMin, CONFIG.systemCountMax);
+
+    const systems = [];
+    const usedSystems = {};
+
+    for (let systemIndex = 1; systemIndex <= systemCount; systemIndex++) {
+      const sysPos = chooseLocalPosition(clusterRng, usedSystems, 18, 70);
+      usedSystems[sysPos.k] = true;
+
+      const systemSeed = stableHash("system", clusterSeed, sysPos.x, sysPos.y, systemIndex);
+      const sysRng = makeRng(systemSeed);
+
+      const starType = sysRng.pick(STAR_TYPES);
+      const starColor = hsvToCss(sysRng.next(), sysRng.float(0.25, 0.65), 1);
+      const starTemperature = Math.floor(sysRng.float(2500, 13000));
+      const planetCount = sysRng.int(1, 12);
+
+      const bodies = [];
+      const usedBodies = {};
+      const usedBodyNames = {};
+
+      for (let bodyId = 1; bodyId <= planetCount; bodyId++) {
+        const bodySeed = stableHash("body", systemSeed, bodyId);
+        const bodyRng = makeRng(bodySeed);
+        const orbitRadius = bodyId * 4 + bodyRng.float(2, 6);
+
+        let angle = bodyRng.float(0, TAU);
+        let bx = Math.floor(Math.cos(angle) * orbitRadius);
+        let by = Math.floor(Math.sin(angle) * orbitRadius);
+        let bk = key2(bx, by);
+
+        while (usedBodies[bk]) {
+          angle += 0.37;
+          bx = Math.floor(Math.cos(angle) * orbitRadius);
+          by = Math.floor(Math.sin(angle) * orbitRadius);
+          bk = key2(bx, by);
         }
 
-        // Generate Orbiting Bodies
-        const planetCount = rng.int(2, 8);
-        const bodies = [];
+        usedBodies[bk] = true;
 
-        for (let b = 1; b <= planetCount; b++) {
-          const orbitRadius = b * 5 + rng.float(2, 4);
-          let pType;
+        const body = createPlanetBody(systemSeed, bodyId, orbitRadius, starTemperature, bodyRng);
+        body.SystemX = bx;
+        body.SystemY = by;
+        body.Name = generateBodyName(stableHash("bodyname", systemSeed, bodyId, body.Class, body.Type, orbitRadius), usedBodyNames);
 
-          if (type === "Black Hole") {
-            // BLACK HOLE RULE: CANNOT have Volcanic worlds!
-            const allowed = ["IceWorld", "IceWorld", "Tundra", "Barren", "Exotic", "GasGiant"];
-            pType = rng.pick(allowed);
-          } else if (type === "Neutron Star" || type === "Pulsar") {
-            // NEUTRON / PULSAR RULE: Mostly Ice Worlds (~75% chance)
-            if (rng.next() < 0.75) {
-              pType = "IceWorld";
-            } else {
-              pType = rng.pick(["Tundra", "Barren", "Exotic", "GasGiant"]);
-            }
-          } else {
-            // STANDARD STARS: Distance & Temp Logic
-            if (orbitRadius < 8) {
-              pType = rng.pick(["Volcanic", "Desert", "Barren", "Exotic"]);
-            } else if (orbitRadius <= 16) {
-              pType = rng.pick(["Safe", "Terra", "Forest", "Exotic", "Barren"]);
-            } else {
-              pType = rng.pick(["IceWorld", "Tundra", "GasGiant"]);
-            }
-          }
+        bodies.push(body);
+      }
 
-          // Angle positioning in orbit
-          const pAngle = rng.float(0, TAU);
-          const px = Math.floor(Math.cos(pAngle) * orbitRadius);
-          const py = Math.floor(Math.sin(pAngle) * orbitRadius);
+      systems.push({
+        SystemID: systemSeed,
+        Name: generateProcName(systemSeed),
+        SpaceX: sysPos.x,
+        SpaceY: sysPos.y,
+        StarType: starType,
+        StarColor: starColor,
+        StarTemperature: starTemperature,
+        PlanetCount: planetCount,
+        Bodies: bodies,
+        HasDyson: sysRng.next() < 0.03,
+      });
+    }
 
-          let pSize = pType === "GasGiant" ? rng.int(28, 42) : rng.int(10, 22);
-          let pGravity = pType === "GasGiant" ? rng.float(2.0, 4.0) : rng.float(0.4, 1.6);
-          let pTemp = Math.floor(temp / Math.sqrt(orbitRadius) * 0.15) - 100;
-          if (pType === "IceWorld") pTemp = Math.min(pTemp, -80);
-          if (pType === "Volcanic") pTemp = Math.max(pTemp, 450);
+    return {
+      ClusterID: clusterID,
+      Name: clusterName,
+      ClusterX: clusterX,
+      ClusterY: clusterY,
+      SystemCount: systemCount,
+      Systems: systems,
+    };
+  }
 
-          bodies.push({
-            id: b,
-            name: `${rng.pick(NAME_A)} ${b}`,
-            type: pType,
-            orbitRadius: orbitRadius,
-            x: px,
-            y: py,
-            size: pSize,
-            gravity: pGravity,
-            temp: pTemp,
-            hasRings: (pType === "GasGiant" || pType === "IceWorld") && rng.next() < 0.5,
-            info: PLANET_TYPES[pType]
-          });
-        }
+  function buildCatalog() {
+    if (state.catalog && state.catalog.seed === state.seed) {
+      return state.catalog;
+    }
 
-        catalog.push({
-          id: i + 1,
-          name: `${rng.pick(NAME_A)} System`,
-          type: type,
-          x: x,
-          y: y,
-          size: size,
-          mass: mass,
-          color: color,
-          temp: temp,
-          bodies: bodies
+    const rng = makeRng(state.seed);
+    const usedClusters = {};
+    const clusters = [];
+    const byCluster = {};
+
+    for (let i = 1; i <= CONFIG.clusterCount; i++) {
+      const pos = chooseClusterPosition(rng, usedClusters);
+      usedClusters[pos.k] = true;
+
+      const clusterSeed = stableHash("clusterSeed", state.seed, pos.x, pos.y, i);
+      const cluster = buildCluster(clusterSeed, pos.x, pos.y, i);
+      clusters.push(cluster);
+      byCluster[key2(pos.x, pos.y)] = cluster;
+    }
+
+    const solCluster = makeSolCluster();
+    clusters.push(solCluster);
+    byCluster[key2(0, 0)] = solCluster;
+
+    clusters.sort((a, b) => {
+      if (a.ClusterX === b.ClusterX) return a.ClusterY - b.ClusterY;
+      return a.ClusterX - b.ClusterX;
+    });
+
+    state.catalog = { seed: state.seed, clusters, byCluster };
+    return state.catalog;
+  }
+
+  function generateBackgroundStars() {
+    const rng = makeRng(stableHash("background", state.seed));
+    const stars = [];
+    for (let i = 0; i < CONFIG.starCount; i++) {
+      stars.push({
+        x: rng.next(),
+        y: rng.next(),
+        r: rng.float(0.5, 1.8),
+        a: rng.float(0.20, 0.95),
+      });
+    }
+    state.stars = stars;
+  }
+
+  function getModeScale() {
+    if (state.mode === "Galaxy") return CONFIG.galaxyScale * state.zoom;
+    if (state.mode === "Cluster") return CONFIG.clusterScale * state.zoom;
+    if (state.mode === "System") return CONFIG.systemScale * state.zoom;
+    return 1;
+  }
+
+  function getCanvasSize() {
+    const rect = canvas.getBoundingClientRect();
+    return { width: rect.width, height: rect.height, rect };
+  }
+
+  function resizeCanvas() {
+    const { width, height } = getCanvasSize();
+    const dpr = Math.max(window.devicePixelRatio || 1, 1);
+    canvas.width = Math.floor(width * dpr);
+    canvas.height = Math.floor(height * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    generateBackgroundStars();
+  }
+
+  function worldToScreen(wx, wy) {
+    const { width, height } = getCanvasSize();
+    const scale = getModeScale();
+    const cx = width * 0.5;
+    const cy = height * 0.5;
+    return {
+      x: cx + ((wx - state.cameraX) * scale),
+      y: cy + ((-wy + state.cameraY) * scale),
+    };
+  }
+
+  function getCurrentPathText() {
+    const c = state.currentCluster;
+    const s = state.currentSystem;
+    const b = state.currentBody;
+
+    if (state.mode === "Galaxy") return c ? `Cluster: [${c.ClusterX}, ${c.ClusterY}]` : "Cluster: [?, ?]";
+    if (state.mode === "Cluster") return c && s ? `Cluster: [${c.ClusterX}, ${c.ClusterY}]  |  System: [${s.SpaceX}, ${s.SpaceY}]` : "Cluster / System: [?, ?]";
+    if (state.mode === "System") return c && s && b ? `Cluster: [${c.ClusterX}, ${c.ClusterY}]  |  System: [${s.SpaceX}, ${s.SpaceY}]  |  Body: [${b.SystemX}, ${b.SystemY}]` : "Cluster / System / Body: [?, ?]";
+    return b ? `Surface: ${b.Name}` : "Surface";
+  }
+
+  function getMarkerInfo(item) {
+    if (!item) return "Right click a cluster, system, or body.";
+
+    if (item.kind === "cluster") {
+      const c = item.object;
+      return [
+        c.Name,
+        `Systems: ${c.SystemCount}`,
+        `Cluster ID: ${c.ClusterID}`,
+        `Coords: [${c.ClusterX}, ${c.ClusterY}]`,
+      ].join("\n");
+    }
+
+    if (item.kind === "system") {
+      const s = item.object;
+      return [
+        s.Name,
+        `Star Type: ${s.StarType}`,
+        `Planets: ${s.PlanetCount}`,
+        `Star Temp: ${s.StarTemperature} K`,
+        `Dyson: ${s.HasDyson ? "Yes" : "No"}`,
+        `System ID: ${s.SystemID}`,
+        `Coords: [${s.SpaceX}, ${s.SpaceY}]`,
+      ].join("\n");
+    }
+
+    if (item.kind === "body") {
+      const b = item.object;
+      return [
+        b.Name,
+        `Class: ${b.Class}`,
+        `Type: ${b.Type}`,
+        `Size: ${b.Size}`,
+        `Gravity: ${b.Gravity.toFixed(2)}`,
+        `Orbit: ${Math.round(b.OrbitRadius)} PU`,
+        `Temp: ${b.Temperature} K`,
+        `Breathable: ${b.Breathable ? "Yes" : "No"}`,
+        `Tidally Locked: ${b.TidallyLocked ? "Yes" : "No"}`,
+        `Rings: ${b.HasRings ? "Yes" : "No"}`,
+        `Life: ${b.HasLife ? b.LifeType : "None"}`,
+      ].join("\n");
+    }
+
+    return "Right click a cluster, system, or body.";
+  }
+
+  function setSelection(item) {
+    state.selectedItem = item;
+    infoEl.textContent = getMarkerInfo(item);
+  }
+
+  function setViewGalaxy() {
+    state.mode = "Galaxy";
+    state.zoom = 1;
+    state.currentSystem = null;
+    state.currentBody = null;
+
+    if (state.currentCluster) {
+      state.cameraX = state.currentCluster.ClusterX;
+      state.cameraY = state.currentCluster.ClusterY;
+    } else {
+      state.cameraX = 0;
+      state.cameraY = 0;
+    }
+
+    if (state.currentCluster) {
+      setSelection({ kind: "cluster", object: state.currentCluster });
+    }
+  }
+
+  function setViewCluster(cluster) {
+    if (!cluster) return;
+    state.mode = "Cluster";
+    state.currentCluster = cluster;
+    state.currentSystem = cluster.Systems[0] || null;
+    state.currentBody = null;
+    state.zoom = 1;
+    state.cameraX = 0;
+    state.cameraY = 0;
+    setSelection({ kind: "cluster", object: cluster });
+  }
+
+  function setViewSystem(system, cluster) {
+    if (!system) return;
+    state.mode = "System";
+    if (cluster) state.currentCluster = cluster;
+    state.currentSystem = system;
+    state.currentBody = null;
+    state.zoom = 1;
+    state.cameraX = 0;
+    state.cameraY = 0;
+    setSelection({ kind: "system", object: system });
+  }
+
+  function setViewSurface(body, system, cluster) {
+    if (!body) return;
+    state.mode = "Surface";
+    if (cluster) state.currentCluster = cluster;
+    if (system) state.currentSystem = system;
+    state.currentBody = body;
+    state.zoom = 1;
+    state.cameraX = 0;
+    state.cameraY = 0;
+    setSelection({ kind: "body", object: body });
+  }
+
+  function openItem(item) {
+    if (!item) return;
+    if (item.kind === "cluster") setViewCluster(item.object);
+    else if (item.kind === "system") setViewSystem(item.object, item.cluster || state.currentCluster);
+    else if (item.kind === "body") setViewSurface(item.object, item.system || state.currentSystem, item.cluster || state.currentCluster);
+  }
+
+  function getVisibleMarkers() {
+    const markers = [];
+
+    if (state.mode === "Galaxy") {
+      for (const cluster of state.catalog.clusters) {
+        markers.push({
+          kind: "cluster",
+          object: cluster,
+          wx: cluster.ClusterX,
+          wy: cluster.ClusterY,
+          r: clamp(9 + cluster.SystemCount * 0.04, 9, 18),
+          color: hsvToCss(fract((cluster.ClusterID % 1000) / 1000), 0.65, 1),
+          label: cluster.Name,
+        });
+      }
+      return markers;
+    }
+
+    if (state.mode === "Cluster") {
+      const cluster = state.currentCluster;
+      if (!cluster) return markers;
+      for (const system of cluster.Systems) {
+        markers.push({
+          kind: "system",
+          object: system,
+          cluster,
+          wx: system.SpaceX,
+          wy: system.SpaceY,
+          r: 6,
+          color: system.StarColor,
+          label: system.Name,
+        });
+      }
+      return markers;
+    }
+
+    if (state.mode === "System") {
+      const cluster = state.currentCluster;
+      const system = state.currentSystem;
+      if (!system) return markers;
+
+      markers.push({
+        kind: "system",
+        object: system,
+        cluster,
+        wx: 0,
+        wy: 0,
+        r: 14,
+        color: system.StarColor,
+        label: system.Name,
+        isStar: true,
+      });
+
+      for (const body of system.Bodies) {
+        markers.push({
+          kind: "body",
+          object: body,
+          cluster,
+          system,
+          wx: body.SystemX,
+          wy: body.SystemY,
+          r: clamp(body.Size / 24, 6, 26),
+          color: body.Color,
+          label: body.Name,
         });
       }
 
-      return catalog;
+      return markers;
     }
 
-    // --- CANVAS ENGINE & RENDERING ---
-    const canvas = document.getElementById("map");
-    const ctx = canvas.getContext("2d");
-
-    function resizeCanvas() {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
-    }
-
-    function generateStarfield() {
-      const rng = makeRng(12345);
-      state.starsBg = [];
-      for (let i = 0; i < 300; i++) {
-        state.starsBg.push({
-          x: rng.next(),
-          y: rng.next(),
-          r: rng.float(0.5, 1.6),
-          alpha: rng.float(0.2, 0.8)
-        });
-      }
-    }
-
-    function worldToScreen(wx, wy) {
-      const cx = canvas.width * 0.5;
-      const cy = canvas.height * 0.5;
-      const s = CONFIG.scale * state.zoom;
-      return {
-        x: cx + (wx - state.cameraX) * s,
-        y: cy - (wy - state.cameraY) * s
-      };
-    }
-
-    function screenToWorld(sx, sy) {
-      const cx = canvas.width * 0.5;
-      const cy = canvas.height * 0.5;
-      const s = CONFIG.scale * state.zoom;
-      return {
-        x: (sx - cx) / s + state.cameraX,
-        y: -(sy - cy) / s + state.cameraY
-      };
-    }
-
-    // Dynamic Render Loops
-    function drawBackground() {
-      ctx.fillStyle = "#030408";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-      // Deep Space Nebula Glow
-      const grad = ctx.createRadialGradient(canvas.width*0.5, canvas.height*0.5, 50, canvas.width*0.5, canvas.height*0.5, canvas.width*0.8);
-      grad.addColorStop(0, "rgba(15, 23, 42, 0.6)");
-      grad.addColorStop(0.5, "rgba(8, 11, 20, 0.8)");
-      grad.addColorStop(1, "#030408");
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-      // Stars background
-      for (const s of state.starsBg) {
-        ctx.fillStyle = `rgba(255, 255, 255, ${s.alpha})`;
-        ctx.beginPath();
-        ctx.arc(s.x * canvas.width, s.y * canvas.height, s.r, 0, TAU);
-        ctx.fill();
-      }
-    }
-
-    function drawClusterView() {
-      const time = Date.now() * 0.002;
-
-      for (const sys of state.catalog) {
-        const p = worldToScreen(sys.x, sys.y);
-        
-        // Skip out of view
-        if (p.x < -50 || p.x > canvas.width + 50 || p.y < -50 || p.y > canvas.height + 50) continue;
-
-        // Custom Render by Star Type
-        if (sys.type === "Black Hole") {
-          // Gravitational Accretion Disk Lensing
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, sys.size * 2.8, 0, TAU);
-          const bhGrad = ctx.createRadialGradient(p.x, p.y, 2, p.x, p.y, sys.size * 3);
-          bhGrad.addColorStop(0, "#000");
-          bhGrad.addColorStop(0.4, "rgba(234, 88, 12, 0.9)");
-          bhGrad.addColorStop(0.8, "rgba(251, 146, 60, 0.3)");
-          bhGrad.addColorStop(1, "transparent");
-          ctx.fillStyle = bhGrad;
-          ctx.fill();
-
-          // Event Horizon
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, sys.size, 0, TAU);
-          ctx.fillStyle = "#000000";
-          ctx.fill();
-          ctx.strokeStyle = "#fdba74";
-          ctx.lineWidth = 1.5;
-          ctx.stroke();
-
-        } else if (sys.type === "Pulsar") {
-          // Polar Energy Jets
-          ctx.save();
-          ctx.translate(p.x, p.y);
-          ctx.rotate(time * 3);
-          ctx.fillStyle = "rgba(168, 85, 247, 0.4)";
-          ctx.fillRect(-2, -35, 4, 70);
-          ctx.restore();
-
-          // Core
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, sys.size, 0, TAU);
-          ctx.fillStyle = "#ffffff";
-          ctx.fill();
-          ctx.strokeStyle = "#c084fc";
-          ctx.lineWidth = 3;
-          ctx.stroke();
-
-        } else if (sys.type === "Neutron Star") {
-          // Cyan Magnetic Aura
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, sys.size * 2.2, 0, TAU);
-          ctx.fillStyle = "rgba(56, 189, 248, 0.25)";
-          ctx.fill();
-
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, sys.size, 0, TAU);
-          ctx.fillStyle = "#e0f2fe";
-          ctx.fill();
-
-        } else {
-          // Standard Star Glow
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, sys.size * 1.8, 0, TAU);
-          ctx.fillStyle = sys.color;
-          ctx.globalAlpha = 0.25;
-          ctx.fill();
-          ctx.globalAlpha = 1.0;
-
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, sys.size * 0.8, 0, TAU);
-          ctx.fillStyle = "#ffffff";
-          ctx.fill();
-        }
-
-        // Selection / Hover Highlight
-        if (state.hoverItem && state.hoverItem.data === sys) {
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, sys.size + 8, 0, TAU);
-          ctx.strokeStyle = "#38bdf8";
-          ctx.lineWidth = 2;
-          ctx.stroke();
-        }
-      }
-    }
-
-    function drawSystemView() {
-      const sys = state.currentSystem;
-      if (!sys) return;
-
-      const center = worldToScreen(0, 0);
-
-      // Render Star at center
-      if (sys.type === "Black Hole") {
-        ctx.beginPath();
-        ctx.arc(center.x, center.y, 25, 0, TAU);
-        ctx.fillStyle = "#000000";
-        ctx.fill();
-        ctx.strokeStyle = "#f97316";
-        ctx.lineWidth = 4;
-        ctx.stroke();
-      } else {
-        ctx.beginPath();
-        ctx.arc(center.x, center.y, 30, 0, TAU);
-        ctx.fillStyle = sys.color;
-        ctx.fill();
-      }
-
-      // Orbits & Planets
-      for (const body of sys.bodies) {
-        const orbitPx = body.orbitRadius * CONFIG.scale * state.zoom;
-        
-        // Draw Orbit Line
-        ctx.beginPath();
-        ctx.arc(center.x, center.y, orbitPx, 0, TAU);
-        ctx.strokeStyle = "rgba(255, 255, 255, 0.08)";
-        ctx.lineWidth = 1;
-        ctx.stroke();
-
-        // Planet Position
-        const p = worldToScreen(body.x, body.y);
-
-        // Gas Giant Rings
-        if (body.hasRings) {
-          ctx.beginPath();
-          ctx.ellipse(p.x, p.y, body.size * 0.8, body.size * 0.3, 0.4, 0, TAU);
-          ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
-          ctx.lineWidth = 4;
-          ctx.stroke();
-        }
-
-        // Planet Sphere
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, body.size * 0.4, 0, TAU);
-        ctx.fillStyle = body.info.color;
-        ctx.fill();
-
-        // Hover Ring
-        if (state.hoverItem && state.hoverItem.data === body) {
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, body.size * 0.4 + 6, 0, TAU);
-          ctx.strokeStyle = "#38bdf8";
-          ctx.lineWidth = 2;
-          ctx.stroke();
-        }
-      }
-    }
-
-    function drawSurfaceView() {
+    if (state.mode === "Surface") {
       const body = state.currentBody;
-      if (!body) return;
+      if (body) {
+        markers.push({
+          kind: "body",
+          object: body,
+          cluster: state.currentCluster,
+          system: state.currentSystem,
+          wx: 0,
+          wy: 0,
+          r: 0,
+          color: body.Color,
+          label: body.Name,
+        });
+      }
+    }
 
-      const cx = canvas.width * 0.5;
-      const cy = canvas.height * 0.5;
-      const r = Math.min(canvas.width, canvas.height) * 0.25;
+    return markers;
+  }
 
-      // Planet Sphere Render with Dynamic Atmosphere Gradient
-      const grad = ctx.createRadialGradient(cx - r*0.3, cy - r*0.3, r*0.1, cx, cy, r);
-      grad.addColorStop(0, "#ffffff");
-      grad.addColorStop(0.5, body.info.color);
-      grad.addColorStop(1, "#000000");
+  function findMarkerAtScreen(x, y, markers) {
+    let best = null;
+    let bestDist = Infinity;
 
+    for (const m of markers) {
+      const dx = x - m.sx;
+      const dy = y - m.sy;
+      const dist = Math.hypot(dx, dy);
+      const hitRadius = (m.r || 8) + 8;
+
+      if (dist <= hitRadius && dist < bestDist) {
+        best = m;
+        bestDist = dist;
+      }
+    }
+
+    return best;
+  }
+
+  function drawBackground(width, height) {
+    const g = ctx.createRadialGradient(width * 0.5, height * 0.5, 0, width * 0.5, height * 0.5, Math.max(width, height) * 0.8);
+    g.addColorStop(0, "#0e1020");
+    g.addColorStop(0.6, "#05060a");
+    g.addColorStop(1, "#020203");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, width, height);
+
+    for (const s of state.stars) {
+      const x = s.x * width;
+      const y = s.y * height;
+      ctx.globalAlpha = s.a;
+      ctx.fillStyle = "#ffffff";
       ctx.beginPath();
-      ctx.arc(cx, cy, r, 0, TAU);
-      ctx.fillStyle = grad;
+      ctx.arc(x, y, s.r, 0, TAU);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawTextWithStroke(text, x, y, size = 12, align = "center", fill = "#ffffff") {
+    ctx.font = `${size}px Arial, Helvetica, sans-serif`;
+    ctx.textAlign = align;
+    ctx.textBaseline = "middle";
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = "rgba(0,0,0,0.8)";
+    ctx.fillStyle = fill;
+    ctx.strokeText(text, x, y);
+    ctx.fillText(text, x, y);
+  }
+
+  function drawHalo(x, y, r, color = "rgba(255,255,140,0.95)") {
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, TAU);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+  }
+
+  function drawClusterView(markers, hovered) {
+    for (const m of markers) {
+      ctx.beginPath();
+      ctx.arc(m.sx, m.sy, m.r, 0, TAU);
+      ctx.fillStyle = m.color;
       ctx.fill();
 
-      // Atmospheric Glow Ring
-      ctx.beginPath();
-      ctx.arc(cx, cy, r + 4, 0, TAU);
-      ctx.strokeStyle = body.info.color;
-      ctx.lineWidth = 3;
-      ctx.globalAlpha = 0.4;
+      ctx.strokeStyle = "rgba(0,0,0,0.65)";
+      ctx.lineWidth = 1.5;
       ctx.stroke();
-      ctx.globalAlpha = 1.0;
-    }
 
-    function render() {
-      drawBackground();
-
-      if (state.mode === "Cluster") drawClusterView();
-      else if (state.mode === "System") drawSystemView();
-      else if (state.mode === "Surface") drawSurfaceView();
-
-      updateHoverAndUI();
-      requestAnimationFrame(render);
-    }
-
-    // --- INTERACTION & HIT DETECTION ---
-    function updateHoverAndUI() {
-      let foundHover = null;
-
-      if (state.mode === "Cluster") {
-        for (const sys of state.catalog) {
-          const p = worldToScreen(sys.x, sys.y);
-          const dist = Math.hypot(state.mouseX - p.x, state.mouseY - p.y);
-          if (dist < sys.size + 10) {
-            foundHover = { kind: "system", data: sys };
-            break;
-          }
-        }
-      } else if (state.mode === "System" && state.currentSystem) {
-        for (const body of state.currentSystem.bodies) {
-          const p = worldToScreen(body.x, body.y);
-          const dist = Math.hypot(state.mouseX - p.x, state.mouseY - p.y);
-          if (dist < body.size * 0.4 + 8) {
-            foundHover = { kind: "body", data: body };
-            break;
-          }
-        }
+      if (hovered === m || (state.selectedItem && state.selectedItem.kind === "cluster" && state.selectedItem.object === m.object)) {
+        drawHalo(m.sx, m.sy, m.r + 8);
+        drawTextWithStroke(m.label, m.sx, m.sy + m.r + 12, 12, "center");
       }
+    }
+  }
 
-      state.hoverItem = foundHover;
+  function drawClusterSystemView(markers, hovered) {
+    const star = markers.find(m => m.kind === "system" && m.isStar);
 
-      // Coordinates display update
-      const coordsBadge = document.getElementById("coordsBadge");
-      if (foundHover) {
-        coordsBadge.textContent = `Target: [${foundHover.data.x || 0}, ${foundHover.data.y || 0}]`;
-      } else {
-        const w = screenToWorld(state.mouseX, state.mouseY);
-        coordsBadge.textContent = `Cursor: [${Math.round(w.x)}, ${Math.round(w.y)}]`;
+    if (star) {
+      ctx.beginPath();
+      ctx.arc(star.sx, star.sy, 18, 0, TAU);
+      ctx.fillStyle = star.color;
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.arc(star.sx, star.sy, 30, 0, TAU);
+      ctx.strokeStyle = "rgba(255,255,255,0.2)";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      if (hovered === star || (state.selectedItem && state.selectedItem.kind === "system" && state.selectedItem.object === star.object)) {
+        drawHalo(star.sx, star.sy, 24, "rgba(255,255,255,0.95)");
+        drawTextWithStroke(star.label, star.sx, star.sy - 28, 12, "center");
       }
     }
 
-    function displayInfo(item) {
-      const title = document.getElementById("infoTitle");
-      const body = document.getElementById("infoBody");
+    for (const m of markers) {
+      if (m.isStar) continue;
 
-      if (!item) {
-        title.textContent = "Information";
-        body.innerHTML = "Right click any celestial object to view detailed metrics.";
+      ctx.beginPath();
+      ctx.arc(m.sx, m.sy, m.r, 0, TAU);
+      ctx.fillStyle = m.color;
+      ctx.fill();
+
+      ctx.strokeStyle = "rgba(0,0,0,0.65)";
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+
+      if (hovered === m || (state.selectedItem && state.selectedItem.kind === "system" && state.selectedItem.object === m.object)) {
+        drawHalo(m.sx, m.sy, m.r + 7);
+        drawTextWithStroke(m.label, m.sx, m.sy + m.r + 12, 12, "center");
+      }
+    }
+  }
+
+  function drawSystemView(markers, hovered) {
+    const system = state.currentSystem;
+    if (!system) return;
+
+    const star = markers.find(m => m.isStar);
+    if (star) {
+      const glow = ctx.createRadialGradient(star.sx, star.sy, 0, star.sx, star.sy, 60);
+      glow.addColorStop(0, "rgba(255,255,255,0.45)");
+      glow.addColorStop(0.2, star.color);
+      glow.addColorStop(1, "rgba(255,255,255,0)");
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(star.sx, star.sy, 60, 0, TAU);
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.arc(star.sx, star.sy, 14, 0, TAU);
+      ctx.fillStyle = star.color;
+      ctx.fill();
+      drawTextWithStroke(system.Name, star.sx, star.sy - 28, 13, "center");
+
+      if (hovered === star || (state.selectedItem && state.selectedItem.kind === "system" && state.selectedItem.object === star.object)) {
+        drawHalo(star.sx, star.sy, 20, "rgba(255,255,255,0.95)");
+      }
+    }
+
+    for (const body of system.Bodies) {
+      const orbitPx = body.OrbitRadius * getModeScale();
+      ctx.beginPath();
+      ctx.arc(star.sx, star.sy, orbitPx, 0, TAU);
+      ctx.strokeStyle = "rgba(255,255,255,0.05)";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+
+    for (const m of markers) {
+      if (m.isStar) continue;
+
+      ctx.beginPath();
+      ctx.arc(m.sx, m.sy, m.r, 0, TAU);
+      ctx.fillStyle = m.color;
+      ctx.fill();
+
+      ctx.strokeStyle = "rgba(0,0,0,0.65)";
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+
+      if (hovered === m || (state.selectedItem && state.selectedItem.kind === "body" && state.selectedItem.object === m.object)) {
+        drawHalo(m.sx, m.sy, m.r + 7);
+        drawTextWithStroke(m.label, m.sx, m.sy + m.r + 12, 12, "center");
+      }
+    }
+  }
+
+  function drawSurfaceView(width, height) {
+    const body = state.currentBody;
+    if (!body) return;
+
+    const bg = ctx.createRadialGradient(width * 0.5, height * 0.5, 0, width * 0.5, height * 0.5, Math.max(width, height) * 0.8);
+    bg.addColorStop(0, "#11131e");
+    bg.addColorStop(1, "#05060a");
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, width, height);
+
+    const cx = width * 0.5;
+    const cy = height * 0.52;
+    const r = Math.min(width, height) * 0.27;
+
+    if (body.HasRings) {
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(-0.35);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, r * 1.55, r * 0.55, 0, 0, TAU);
+      ctx.strokeStyle = "rgba(255,255,255,0.18)";
+      ctx.lineWidth = 18;
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    const sphere = ctx.createRadialGradient(cx - r * 0.30, cy - r * 0.35, r * 0.12, cx, cy, r);
+    sphere.addColorStop(0, "rgba(255,255,255,0.25)");
+    sphere.addColorStop(0.35, body.Color);
+    sphere.addColorStop(1, "rgba(0,0,0,0.45)");
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, TAU);
+    ctx.fillStyle = body.Color;
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, TAU);
+    ctx.fillStyle = sphere;
+    ctx.fill();
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, TAU);
+    ctx.clip();
+    const shadow = ctx.createLinearGradient(cx - r, cy, cx + r, cy);
+    shadow.addColorStop(0, body.TidallyLocked ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.10)");
+    shadow.addColorStop(0.45, "rgba(0,0,0,0.05)");
+    shadow.addColorStop(1, "rgba(0,0,0,0.55)");
+    ctx.fillStyle = shadow;
+    ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+    ctx.restore();
+
+    drawTextWithStroke(body.Name, cx, cy - r - 24, 18, "center");
+    drawTextWithStroke(body.Type + " world", cx, cy - r - 2, 12, "center", "rgba(255,255,255,0.9)");
+    drawTextWithStroke("Surface View", cx, height - 28, 12, "center", "rgba(255,255,255,0.75)");
+  }
+
+  function updateUiTexts() {
+    coords2El.textContent = getCurrentPathText();
+
+    if (state.hoverItem) {
+      if (state.hoverItem.kind === "cluster") coords1El.textContent = `[${state.hoverItem.object.ClusterX}, ${state.hoverItem.object.ClusterY}]`;
+      else if (state.hoverItem.kind === "system") coords1El.textContent = `[${state.hoverItem.object.SpaceX}, ${state.hoverItem.object.SpaceY}]`;
+      else if (state.hoverItem.kind === "body") coords1El.textContent = `[${state.hoverItem.object.SystemX}, ${state.hoverItem.object.SystemY}]`;
+      else coords1El.textContent = "[?, ?]";
+    } else {
+      coords1El.textContent = "[?, ?]";
+    }
+
+    infoEl.textContent = state.selectedItem ? getMarkerInfo(state.selectedItem) : "Right click a cluster, system, or body.";
+    hintEl.textContent = "Galaxy: clusters · Cluster: systems · System: bodies · WASD: move · Left drag: pan · Scroll: zoom · Left click: open · Middle click: select teleport target · Right click: info";
+  }
+
+  function refreshHoverItem() {
+    const markers = getVisibleMarkers();
+    for (const m of markers) {
+      const p = worldToScreen(m.wx, m.wy);
+      m.sx = p.x;
+      m.sy = p.y;
+    }
+    state.hoverItem = state.mouseInside ? findMarkerAtScreen(state.mouseX, state.mouseY, markers) : null;
+  }
+
+  function render() {
+    const { width, height } = getCanvasSize();
+    drawBackground(width, height);
+
+    const markers = getVisibleMarkers();
+    for (const m of markers) {
+      const p = worldToScreen(m.wx, m.wy);
+      m.sx = p.x;
+      m.sy = p.y;
+    }
+
+    state.hoverItem = state.mouseInside ? findMarkerAtScreen(state.mouseX, state.mouseY, markers) : null;
+
+    if (state.mode === "Galaxy") drawClusterView(markers, state.hoverItem);
+    else if (state.mode === "Cluster") drawClusterSystemView(markers, state.hoverItem);
+    else if (state.mode === "System") drawSystemView(markers, state.hoverItem);
+    else if (state.mode === "Surface") drawSurfaceView(width, height);
+
+    updateUiTexts();
+  }
+
+  function applyPanFromDrag(clientX, clientY) {
+    const rect = canvas.getBoundingClientRect();
+    const dx = clientX - rect.left - state.dragStartX;
+    const dy = clientY - rect.top - state.dragStartY;
+    const scale = getModeScale();
+
+    state.cameraX = state.dragStartCameraX - (dx / scale);
+    state.cameraY = state.dragStartCameraY + (dy / scale);
+    state.cameraX = clamp(state.cameraX, -150, 150);
+    state.cameraY = clamp(state.cameraY, -150, 150);
+  }
+
+  function parseJumpInput(raw) {
+    const text = String(raw || "").trim().toLowerCase();
+    if (!text) return null;
+
+    if (/(^|\b)(earth|sol|sun)(\b|$)/.test(text)) {
+      return { kind: "earth" };
+    }
+
+    const nums = text.match(/-?\d+/g);
+    if (!nums || nums.length < 2) return null;
+
+    return {
+      kind: "coords",
+      clusterX: Number(nums[0]),
+      clusterY: Number(nums[1]),
+      systemX: nums.length >= 4 ? Number(nums[2]) : null,
+      systemY: nums.length >= 4 ? Number(nums[3]) : null,
+      wantBody: /(body|planet|surface|moon)/.test(text),
+    };
+  }
+
+  function getEarthDestination() {
+    const cluster = state.catalog?.byCluster?.[key2(0, 0)];
+    if (!cluster) return null;
+    const system = cluster.Systems.find(s => s.Name === "Sol") || cluster.Systems[0] || null;
+    if (!system) return null;
+    const body = system.Bodies.find(b => b.Name === "Earth") || null;
+    if (!body) return null;
+    return { cluster, system, body };
+  }
+
+  function createOverlayControls() {
+    if (state.uiCreated) return;
+    state.uiCreated = true;
+
+    const panel = document.createElement("div");
+    panel.style.position = "absolute";
+    panel.style.left = "12px";
+    panel.style.bottom = "52px";
+    panel.style.zIndex = "20";
+    panel.style.display = "flex";
+    panel.style.flexDirection = "column";
+    panel.style.gap = "8px";
+    panel.style.pointerEvents = "auto";
+
+    const jumpRow = document.createElement("div");
+    jumpRow.style.display = "flex";
+    jumpRow.style.gap = "8px";
+    jumpRow.style.alignItems = "center";
+    jumpRow.style.flexWrap = "wrap";
+
+    const jumpInput = document.createElement("input");
+    jumpInput.type = "text";
+    jumpInput.placeholder = "earth or 12, -5 : 3, 2";
+    jumpInput.style.width = "220px";
+    jumpInput.style.padding = "10px 12px";
+    jumpInput.style.border = "0";
+    jumpInput.style.borderRadius = "10px";
+    jumpInput.style.background = "rgba(25, 28, 38, 0.92)";
+    jumpInput.style.color = "white";
+    jumpInput.style.outline = "none";
+    jumpInput.style.fontFamily = "Arial, Helvetica, sans-serif";
+    jumpInput.style.pointerEvents = "auto";
+
+    const goBtn = document.createElement("button");
+    goBtn.textContent = "Go";
+    goBtn.style.padding = "10px 14px";
+    goBtn.style.border = "0";
+    goBtn.style.borderRadius = "10px";
+    goBtn.style.background = "#2c3446";
+    goBtn.style.color = "white";
+    goBtn.style.cursor = "pointer";
+
+    const earthBtn = document.createElement("button");
+    earthBtn.textContent = "Go Earth";
+    earthBtn.style.padding = "10px 14px";
+    earthBtn.style.border = "0";
+    earthBtn.style.borderRadius = "10px";
+    earthBtn.style.background = "#1f4b2f";
+    earthBtn.style.color = "white";
+    earthBtn.style.cursor = "pointer";
+
+    jumpRow.appendChild(jumpInput);
+    jumpRow.appendChild(goBtn);
+    jumpRow.appendChild(earthBtn);
+
+    const pad = document.createElement("div");
+    pad.style.display = "grid";
+    pad.style.gridTemplateColumns = "48px 48px 48px";
+    pad.style.gridTemplateRows = "48px 48px 48px";
+    pad.style.gap = "6px";
+    pad.style.alignItems = "center";
+    pad.style.justifyItems = "center";
+    pad.style.width = "160px";
+    pad.style.pointerEvents = "auto";
+
+    function makePadButton(label, gridColumn, gridRow) {
+      const btn = document.createElement("button");
+      btn.textContent = label;
+      btn.style.width = "48px";
+      btn.style.height = "48px";
+      btn.style.border = "0";
+      btn.style.borderRadius = "12px";
+      btn.style.background = "rgba(40, 46, 62, 0.95)";
+      btn.style.color = "white";
+      btn.style.fontSize = "16px";
+      btn.style.cursor = "pointer";
+      btn.style.userSelect = "none";
+      btn.style.touchAction = "none";
+      btn.style.gridColumn = String(gridColumn);
+      btn.style.gridRow = String(gridRow);
+      return btn;
+    }
+
+    const upBtn = makePadButton("▲", 2, 1);
+    const leftBtn = makePadButton("◀", 1, 2);
+    const rightBtn = makePadButton("▶", 3, 2);
+    const downBtn = makePadButton("▼", 2, 3);
+
+    pad.appendChild(upBtn);
+    pad.appendChild(leftBtn);
+    pad.appendChild(rightBtn);
+    pad.appendChild(downBtn);
+
+    panel.appendChild(jumpRow);
+    panel.appendChild(pad);
+    document.body.appendChild(panel);
+
+    function holdButton(btn, keyName) {
+      const on = () => { state.moveKeys[keyName] = true; };
+      const off = () => { state.moveKeys[keyName] = false; };
+
+      btn.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        btn.setPointerCapture?.(e.pointerId);
+        on();
+      });
+
+      btn.addEventListener("pointerup", off);
+      btn.addEventListener("pointercancel", off);
+      btn.addEventListener("pointerleave", off);
+      btn.addEventListener("lostpointercapture", off);
+    }
+
+    holdButton(upBtn, "up");
+    holdButton(leftBtn, "left");
+    holdButton(rightBtn, "right");
+    holdButton(downBtn, "down");
+
+    function jumpToEarth() {
+      const earth = getEarthDestination();
+      if (!earth) {
+        infoEl.textContent = "Earth not available in this catalog.";
         return;
       }
 
-      state.selectedItem = item;
-
-      if (item.kind === "system") {
-        const sys = item.data;
-        title.textContent = sys.name;
-        body.innerHTML = `
-          <div class="info-row"><span class="info-label">Star Type:</span><span class="info-value">${sys.type}</span></div>
-          <div class="info-row"><span class="info-label">Coordinates:</span><span class="info-value">[${sys.x}, ${sys.y}]</span></div>
-          <div class="info-row"><span class="info-label">Solar Mass:</span><span class="info-value">${sys.mass} M☉</span></div>
-          <div class="info-row"><span class="info-label">Temperature:</span><span class="info-value">${sys.temp} K</span></div>
-          <div class="info-row"><span class="info-label">Planets:</span><span class="info-value">${sys.bodies.length} Worlds</span></div>
-        `;
-      } else if (item.kind === "body") {
-        const p = item.data;
-        title.textContent = p.name;
-        body.innerHTML = `
-          <div class="info-row"><span class="info-label">Class:</span><span class="info-value">${p.type} World</span></div>
-          <div class="info-row"><span class="info-label">Gravity:</span><span class="info-value">${p.gravity.toFixed(2)} G</span></div>
-          <div class="info-row"><span class="info-label">Temperature:</span><span class="info-value">${p.temp} K</span></div>
-          <div class="info-row"><span class="info-label">Rings:</span><span class="info-value">${p.hasRings ? "Yes" : "No"}</span></div>
-          <p style="margin-top: 8px; color: #94a3b8; font-size: 12px;">${p.info.desc}</p>
-        `;
-      }
+      state.currentCluster = earth.cluster;
+      state.currentSystem = earth.system;
+      state.currentBody = earth.body;
+      state.mode = "Surface";
+      state.cameraX = 0;
+      state.cameraY = 0;
+      setSelection({ kind: "body", object: earth.body, system: earth.system, cluster: earth.cluster });
+      infoEl.textContent = getMarkerInfo(state.selectedItem);
     }
 
-    // --- NAVIGATION & EVENT LISTENERS ---
-    const backBtn = document.getElementById("backBtn");
-    const teleportBtn = document.getElementById("teleportBtn");
-    const navPath = document.getElementById("navPath");
+    function jumpToParsedInput() {
+      const parsed = parseJumpInput(jumpInput.value);
 
-    function setMode(mode, system = null, body = null) {
-      state.mode = mode;
-      state.currentSystem = system;
-      state.currentBody = body;
-      state.zoom = 1;
+      if (!parsed) {
+        infoEl.textContent = "Use Earth, Sol, or coords like 12, -5 : 3, 2";
+        return;
+      }
+
+      if (parsed.kind === "earth") {
+        jumpToEarth();
+        return;
+      }
+
+      const cluster = state.catalog?.byCluster?.[key2(parsed.clusterX, parsed.clusterY)];
+      if (!cluster) {
+        infoEl.textContent = `Cluster not found: [${parsed.clusterX}, ${parsed.clusterY}]`;
+        return;
+      }
+
+      state.currentCluster = cluster;
+      state.mode = "Cluster";
+      state.currentSystem = cluster.Systems[0] || null;
+      state.currentBody = null;
       state.cameraX = 0;
       state.cameraY = 0;
 
-      if (mode === "Cluster") {
-        navPath.textContent = "Cluster Overview (100 Stars)";
-      } else if (mode === "System") {
-        navPath.textContent = `Cluster → ${system.name}`;
-      } else if (mode === "Surface") {
-        navPath.textContent = `Cluster → ${system.name} → ${body.name}`;
+      if (parsed.systemX !== null && parsed.systemY !== null) {
+        const system = cluster.Systems.find(s => s.SpaceX === parsed.systemX && s.SpaceY === parsed.systemY) || null;
+        if (!system) {
+          infoEl.textContent = `System not found in cluster [${parsed.clusterX}, ${parsed.clusterY}]`;
+          return;
+        }
+
+        state.currentSystem = system;
+        state.mode = "System";
+
+        if (parsed.wantBody) {
+          const body = system.Bodies.find(b => b.SystemX === parsed.systemX && b.SystemY === parsed.systemY) || null;
+          if (body) {
+            state.currentBody = body;
+            state.mode = "Surface";
+            setSelection({ kind: "body", object: body, system, cluster });
+            infoEl.textContent = getMarkerInfo(state.selectedItem);
+            return;
+          }
+        }
+
+        setSelection({ kind: "system", object: system, cluster });
+        infoEl.textContent = getMarkerInfo(state.selectedItem);
+        return;
       }
+
+      setSelection({ kind: "cluster", object: cluster });
+      infoEl.textContent = getMarkerInfo(state.selectedItem);
     }
 
-    backBtn.addEventListener("click", () => {
-      if (state.mode === "Surface") setMode("System", state.currentSystem);
-      else if (state.mode === "System") setMode("Cluster");
-    });
-
-    teleportBtn.addEventListener("click", () => {
-      if (state.selectedItem) {
-        if (state.selectedItem.kind === "system") {
-          setMode("System", state.selectedItem.data);
-        } else if (state.selectedItem.kind === "body") {
-          setMode("Surface", state.currentSystem, state.selectedItem.data);
-        }
+    goBtn.addEventListener("click", jumpToParsedInput);
+    earthBtn.addEventListener("click", jumpToEarth);
+    jumpInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        jumpToParsedInput();
       }
     });
 
-    // Canvas Mouse Controls
-    canvas.addEventListener("mousemove", (e) => {
-      state.mouseX = e.clientX;
-      state.mouseY = e.clientY;
+    state.jumpInput = jumpInput;
+  }
 
-      if (state.dragging) {
-        const dx = (e.clientX - state.dragStartX) / (CONFIG.scale * state.zoom);
-        const dy = (e.clientY - state.dragStartY) / (CONFIG.scale * state.zoom);
-        state.cameraX = state.dragCamX - dx;
-        state.cameraY = state.dragCamY + dy;
-      }
-    });
+  function setViewFromSelectionOnClick(item) {
+    if (!item) return false;
 
-    canvas.addEventListener("mousedown", (e) => {
-      if (e.button === 0) { // Left Click
+    if (item.kind === "cluster") {
+      setViewCluster(item.object);
+      return true;
+    }
+
+    if (item.kind === "system") {
+      setViewSystem(item.object, item.cluster || state.currentCluster);
+      return true;
+    }
+
+    if (item.kind === "body") {
+      setViewSurface(item.object, item.system || state.currentSystem, item.cluster || state.currentCluster);
+      return true;
+    }
+
+    return false;
+  }
+
+  canvas.addEventListener("mousemove", (e) => {
+    const rect = canvas.getBoundingClientRect();
+    state.mouseX = e.clientX - rect.left;
+    state.mouseY = e.clientY - rect.top;
+    state.mouseInside = true;
+
+    if (state.dragging && state.dragPointerId !== null) {
+      applyPanFromDrag(e.clientX, e.clientY);
+      state.dragMoved = true;
+    }
+  });
+
+  canvas.addEventListener("mouseleave", () => {
+    state.mouseInside = false;
+    state.hoverItem = null;
+  });
+
+  canvas.addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+  });
+
+  canvas.addEventListener("pointerdown", (e) => {
+    const rect = canvas.getBoundingClientRect();
+    state.mouseX = e.clientX - rect.left;
+    state.mouseY = e.clientY - rect.top;
+    state.mouseInside = true;
+
+    state.pressedButton = e.button;
+    state.pressedItem = state.hoverItem;
+
+    if (e.button === 0) {
+      state.dragPointerId = e.pointerId;
+      state.dragStartX = e.clientX - rect.left;
+      state.dragStartY = e.clientY - rect.top;
+      state.dragStartCameraX = state.cameraX;
+      state.dragStartCameraY = state.cameraY;
+      state.dragMoved = false;
+      state.dragging = false;
+    } else if (e.button === 1) {
+      if (state.hoverItem) setSelection(state.hoverItem);
+    } else if (e.button === 2) {
+      if (state.hoverItem) setSelection(state.hoverItem);
+    }
+
+    canvas.setPointerCapture?.(e.pointerId);
+  });
+
+  canvas.addEventListener("pointermove", (e) => {
+    const rect = canvas.getBoundingClientRect();
+    state.mouseX = e.clientX - rect.left;
+    state.mouseY = e.clientY - rect.top;
+    state.mouseInside = true;
+
+    if (state.dragPointerId === e.pointerId && state.pressedButton === 0) {
+      const dx = (e.clientX - rect.left) - state.dragStartX;
+      const dy = (e.clientY - rect.top) - state.dragStartY;
+      if (!state.dragging && Math.hypot(dx, dy) > 5) {
         state.dragging = true;
-        state.dragStartX = e.clientX;
-        state.dragStartY = e.clientY;
-        state.dragCamX = state.cameraX;
-        state.dragCamY = state.cameraY;
-
-        if (state.hoverItem) {
-          if (state.hoverItem.kind === "system") setMode("System", state.hoverItem.data);
-          else if (state.hoverItem.kind === "body") setMode("Surface", state.currentSystem, state.hoverItem.data);
-        }
-      } else if (e.button === 2) { // Right Click (Inspect)
-        if (state.hoverItem) displayInfo(state.hoverItem);
       }
-    });
-
-    window.addEventListener("mouseup", () => { state.dragging = false; });
-    canvas.addEventListener("contextmenu", (e) => e.preventDefault());
-
-    canvas.addEventListener("wheel", (e) => {
-      e.preventDefault();
-      const zoomFactor = e.deltaY < 0 ? 1.15 : 0.85;
-      state.zoom = clamp(state.zoom * zoomFactor, 0.4, 4.0);
-    }, { passive: false });
-
-    // Keyboard WASD Pan
-    window.addEventListener("keydown", (e) => {
-      const speed = 10 / state.zoom;
-      if (e.key === "w" || e.key === "W") state.cameraY += speed;
-      if (e.key === "s" || e.key === "S") state.cameraY -= speed;
-      if (e.key === "a" || e.key === "A") state.cameraX -= speed;
-      if (e.key === "d" || e.key === "D") state.cameraX += speed;
-    });
-
-    // Coordinates Jump Input
-    document.getElementById("goBtn").addEventListener("click", () => {
-      const val = document.getElementById("jumpInput").value;
-      const match = val.match(/-?\d+/g);
-      if (match && match.length >= 2) {
-        state.cameraX = parseInt(match[0]);
-        state.cameraY = parseInt(match[1]);
+      if (state.dragging && state.mode !== "Surface") {
+        applyPanFromDrag(e.clientX, e.clientY);
+        state.dragMoved = true;
       }
-    });
+    }
+  });
 
-    // --- INITIALIZATION ---
-    window.addEventListener("resize", resizeCanvas);
-    
-    resizeCanvas();
-    generateStarfield();
-    state.catalog = generateUniverseCatalog();
-    requestAnimationFrame(render);
-  </script>
-</body>
-</html>
+  function endPointer(e) {
+    if (state.dragPointerId === e.pointerId && state.pressedButton === 0) {
+      const wasDrag = state.dragging && state.dragMoved;
+      const item = state.hoverItem;
+
+      if (!wasDrag && item) {
+        setViewFromSelectionOnClick(item);
+      }
+
+      state.dragPointerId = null;
+      state.dragging = false;
+      state.dragMoved = false;
+      state.pressedButton = -1;
+      state.pressedItem = null;
+    }
+  }
+
+  canvas.addEventListener("pointerup", endPointer);
+  canvas.addEventListener("pointercancel", endPointer);
+
+  canvas.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    state.zoom = clamp(state.zoom + (e.deltaY < 0 ? 0.12 : -0.12), 0.5, 3);
+  }, { passive: false });
+
+  backBtn.addEventListener("click", () => {
+    if (state.mode === "Surface" && state.currentSystem) {
+      setViewSystem(state.currentSystem, state.currentCluster);
+      return;
+    }
+    if (state.mode === "System" && state.currentCluster) {
+      setViewCluster(state.currentCluster);
+      return;
+    }
+    if (state.mode === "Cluster") {
+      setViewGalaxy();
+    }
+  });
+
+  teleportBtn.addEventListener("click", () => {
+    if (state.selectedItem) openItem(state.selectedItem);
+  });
+
+  window.addEventListener("resize", resizeCanvas);
+
+  window.addEventListener("keydown", (e) => {
+    if (e.repeat) return;
+
+    if (e.key === "m" || e.key === "M") {
+      canvas.style.display = canvas.style.display === "none" ? "block" : "block";
+      return;
+    }
+
+    if (e.key === "w" || e.key === "W") state.keys.W = true;
+    if (e.key === "a" || e.key === "A") state.keys.A = true;
+    if (e.key === "s" || e.key === "S") state.keys.S = true;
+    if (e.key === "d" || e.key === "D") state.keys.D = true;
+
+    if (e.key === "ArrowUp") state.moveKeys.up = true;
+    if (e.key === "ArrowDown") state.moveKeys.down = true;
+    if (e.key === "ArrowLeft") state.moveKeys.left = true;
+    if (e.key === "ArrowRight") state.moveKeys.right = true;
+
+    if (e.key === "Escape") {
+      if (state.mode === "Surface" && state.currentSystem) setViewSystem(state.currentSystem, state.currentCluster);
+      else if (state.mode === "System" && state.currentCluster) setViewCluster(state.currentCluster);
+      else if (state.mode === "Cluster") setViewGalaxy();
+    }
+
+    if (e.key === "Enter" && state.jumpInput) {
+      state.jumpInput.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+    }
+  });
+
+  window.addEventListener("keyup", (e) => {
+    if (e.key === "w" || e.key === "W") state.keys.W = false;
+    if (e.key === "a" || e.key === "A") state.keys.A = false;
+    if (e.key === "s" || e.key === "S") state.keys.S = false;
+    if (e.key === "d" || e.key === "D") state.keys.D = false;
+
+    if (e.key === "ArrowUp") state.moveKeys.up = false;
+    if (e.key === "ArrowDown") state.moveKeys.down = false;
+    if (e.key === "ArrowLeft") state.moveKeys.left = false;
+    if (e.key === "ArrowRight") state.moveKeys.right = false;
+  });
+
+  function tick(ts) {
+    if (!tick.last) tick.last = ts;
+    const dt = Math.min((ts - tick.last) / 1000, 0.05);
+    tick.last = ts;
+
+    if (state.mode !== "Surface") {
+      const speedBase = state.mode === "Galaxy" ? 30 : state.mode === "Cluster" ? 22 : 18;
+      const speed = (speedBase / state.zoom) * dt;
+
+      if (state.keys.W) state.cameraY += speed;
+      if (state.keys.S) state.cameraY -= speed;
+      if (state.keys.A) state.cameraX -= speed;
+      if (state.keys.D) state.cameraX += speed;
+
+      if (state.moveKeys.up) state.cameraY += speed;
+      if (state.moveKeys.down) state.cameraY -= speed;
+      if (state.moveKeys.left) state.cameraX -= speed;
+      if (state.moveKeys.right) state.cameraX += speed;
+
+      state.cameraX = clamp(state.cameraX, -150, 150);
+      state.cameraY = clamp(state.cameraY, -150, 150);
+    }
+
+    render();
+    requestAnimationFrame(tick);
+  }
+
+  createOverlayControls();
+  resizeCanvas();
+  buildCatalog();
+
+  state.currentCluster = state.catalog.byCluster[key2(0, 0)] || state.catalog.clusters[0] || null;
+  state.currentSystem = state.currentCluster ? state.currentCluster.Systems[0] || null : null;
+  state.currentBody = state.currentSystem ? state.currentSystem.Bodies[0] || null : null;
+  state.selectedItem = state.currentCluster ? { kind: "cluster", object: state.currentCluster } : null;
+  state.cameraX = state.currentCluster ? state.currentCluster.ClusterX : 0;
+  state.cameraY = state.currentCluster ? state.currentCluster.ClusterY : 0;
+
+  if (state.currentCluster) {
+    infoEl.textContent = getMarkerInfo(state.selectedItem);
+  }
+
+  requestAnimationFrame(tick);
+})();
