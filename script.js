@@ -320,8 +320,7 @@
     return 0;
   }
 
-  function pickTerrainForBody(rng, orbitAlpha, starProfile) {
-    // orbitAlpha: 0 = innermost orbit in the system, 1 = outermost.
+  function pickTerrainForBody(rng, orbitRadius, starProfile) {
     // starProfile: from buildStarProfile - used so neutron/pulsar systems
     // skew heavily toward Ice World (their stars run cold in visible/IR
     // terms despite extreme physics), and black holes can never roll
@@ -343,15 +342,45 @@
       "Ice World": 8,
     };
 
-    // Ice World / Volcanic appear preferentially at the extremes of a
-    // system's orbital layout (very close-in = volcanic-favoring heat,
-    // very far-out = ice-favoring cold). Near the middle they're rare.
-    const extremity = Math.abs(orbitAlpha - 0.5) * 2; // 0 center -> 1 at either extreme
-    const closeness = clamp(1 - orbitAlpha * 2, 0, 1); // 1 at innermost, 0 past mid
-    const farness = clamp((orbitAlpha - 0.5) * 2, 0, 1); // 1 at outermost, 0 before mid
+    // Terrain now biases against the SAME temperature estimate used to set
+    // the body's actual Temperature stat (see createPlanetBody), instead of
+    // raw orbital position. Previously Ice World/Volcanic leaned on orbit
+    // position alone while Terra/Forest/Safe Start had no positional bias
+    // at all, so a "Forest" world could just as easily land in scorching
+    // or frozen temperature bands as a temperate one - making its
+    // breathable/life rolls essentially never hit. Now temperate-leaning
+    // terrains (Terra, Forest, Safe Start) are weighted toward orbits that
+    // land near Earth-like temperature, the same way Ice World/Volcanic
+    // are weighted toward the cold/hot extremes.
+    let effectiveStarHeat = starProfile.starTemperature;
+    if (isDeadStar) effectiveStarHeat = 40;
+    if (isBlackHole) effectiveStarHeat = 3;
 
-    weights["Volcanic"] *= 1 + closeness * 5 * extremity;
-    weights["Ice World"] *= 1 + farness * 5 * extremity;
+    const REFERENCE_TEMP = 5778;
+    const REFERENCE_ORBIT = 6;
+
+    let estTemp;
+    if (starProfile.isCompact) {
+      estTemp = effectiveStarHeat - orbitRadius * 2;
+    } else {
+      const luminosityRatio = Math.pow(effectiveStarHeat / REFERENCE_TEMP, 4);
+      const distanceRatio = REFERENCE_ORBIT / Math.max(orbitRadius, 1);
+      estTemp = 288 * Math.sqrt(luminosityRatio * distanceRatio * distanceRatio);
+    }
+
+    // How close this orbit's estimated temperature sits to the temperate
+    // band (260-330K, center ~295K). 1 = dead-on temperate, 0 = far off.
+    const temperateCloseness = clamp(1 - Math.abs(estTemp - 295) / 260, 0, 1);
+    // How far into "hot" or "cold" extremes this orbit sits, relative to
+    // the temperate band, used to drive Volcanic / Ice World bias.
+    const hotness = clamp((estTemp - 330) / 900, 0, 1);
+    const coldness = clamp((260 - estTemp) / 260, 0, 1);
+
+    weights["Volcanic"] *= 1 + hotness * 9;
+    weights["Ice World"] *= 1 + coldness * 9;
+    weights["Terra"] *= 1 + temperateCloseness * 7;
+    weights["Forest"] *= 1 + temperateCloseness * 7;
+    weights["Safe Start"] *= 1 + temperateCloseness * 5;
 
     // Around dead/compact stars, almost everything runs cold: neutron
     // stars and pulsars emit intense radiation but negligible broad-
@@ -432,7 +461,7 @@
 
     let terrain = cls;
     if (cls === "Terrestrial") {
-      terrain = pickTerrainForBody(rng, orbitAlpha, starProfile);
+      terrain = pickTerrainForBody(rng, orbitRadius, starProfile);
     }
 
     let size;
@@ -447,16 +476,32 @@
 
     const roughness = rng.int(0, 5);
 
-    // Temperature model: base on stellar output. Compact/dead stars and
-    // black holes contribute near-zero radiative heat regardless of
-    // "mass," which is why their worlds trend to Ice World terrain.
+    // Temperature model — inverse-square style falloff, normalized so that
+    // an ordinary Sun-like star (~5778K) produces Earth-like temperatures
+    // (~288K) around orbit radius 6 (Earth's own OrbitRadius in this sim's
+    // units). The previous linear model (temp - orbit*75) barely dented a
+    // 5-figure surface temperature over the orbit ranges actually used,
+    // so almost nothing ever fell inside the 260-330K breathable band -
+    // meaning Terra/Forest/Safe Start worlds were rolling breathable=false
+    // essentially 100% of the time. This model scales luminosity with the
+    // stellar temperature (T^4, like real blackbody flux) and then applies
+    // inverse-square distance falloff, which reliably produces some worlds
+    // in the temperate band regardless of star brightness or orbit spread.
     let effectiveStarHeat = starProfile.starTemperature;
     if (starProfile.isNeutronFamily) effectiveStarHeat = 40; // negligible warmth, near absolute-cold backdrop
     if (starProfile.isBlackHole) effectiveStarHeat = 3; // no fusion, no sunlight
 
-    const baseTemp = starProfile.isCompact
-      ? effectiveStarHeat + rng.float(-15, 15) - orbitRadius * 2
-      : starProfile.starTemperature - (orbitRadius * 75) + rng.float(-55, 55);
+    const REFERENCE_TEMP = 5778;   // Sun-like reference surface temp (K)
+    const REFERENCE_ORBIT = 6;     // orbit radius that yields ~288K around a reference star
+
+    let baseTemp;
+    if (starProfile.isCompact) {
+      baseTemp = effectiveStarHeat + rng.float(-15, 15) - orbitRadius * 2;
+    } else {
+      const luminosityRatio = Math.pow(effectiveStarHeat / REFERENCE_TEMP, 4);
+      const distanceRatio = REFERENCE_ORBIT / Math.max(orbitRadius, 1);
+      baseTemp = 288 * Math.sqrt(luminosityRatio * distanceRatio * distanceRatio) + rng.float(-35, 35);
+    }
 
     const temperature = Math.max(2, Math.floor(baseTemp));
 
