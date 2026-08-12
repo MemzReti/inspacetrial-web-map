@@ -747,7 +747,7 @@
     let wormhole = null;
     if (starProfile.isBlackHole) {
       const wormholeRng = makeRng(stableHash("wormhole", systemSeed));
-      if (wormholeRng.next() < 0.10) {
+      if (wormholeRng.next() < 0.20) {
         // Fixed position near the black hole, offset just enough to be
         // visually distinct from the black hole marker itself. Not an
         // orbit - this position never changes/animates.
