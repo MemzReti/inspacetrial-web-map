@@ -4,7 +4,7 @@
   const TAU = Math.PI * 2;
 
   const CONFIG = {
-    seed: 9115,
+    seed: 1,
     systemCount: 100,
     clusterScale: 18,
     systemScale: 22,
