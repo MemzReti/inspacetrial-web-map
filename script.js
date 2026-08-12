@@ -382,6 +382,24 @@
     weights["Forest"] *= 1 + temperateCloseness * 7;
     weights["Safe Start"] *= 1 + temperateCloseness * 5;
 
+    // HARD SAFETY FLOOR for Safe Start.
+    //
+    // Previously Safe Start only got a soft weighting bonus toward
+    // temperate orbits, same mechanism as Terra/Forest - which meant nothing
+    // actually stopped it from rolling around a black hole or way out past
+    // the temperate band, producing "safe" spawn worlds at 2K or 800+K.
+    // A spawn world being dangerously cold/hot defeats the entire point of
+    // the terrain's name, so this is now a hard exclusion rather than a
+    // weight: Safe Start can ONLY be selected when the estimated temp is
+    // realistically livable (240-350K, a bit more forgiving than the strict
+    // 260-330K breathable band so it isn't vanishingly rare), and NEVER
+    // around a compact/dead star or black hole, since no orbit around those
+    // is safe regardless of estimated temperature.
+    const inSafeBand = estTemp >= 240 && estTemp <= 350;
+    if (!inSafeBand || starProfile.isCompact || isBlackHole) {
+      weights["Safe Start"] = 0;
+    }
+
     // Around dead/compact stars, almost everything runs cold: neutron
     // stars and pulsars emit intense radiation but negligible broad-
     // spectrum warmth for orbiting worlds at gameplay distances, so ice
@@ -472,6 +490,7 @@
     let gravity;
     if (cls === "Gas Giant") gravity = rng.float(1.8, 4.5);
     else if (cls === "Ice Giant") gravity = rng.float(0.8, 2.8);
+    else if (terrain === "Safe Start") gravity = rng.float(0.8, 1.3); // walkable, near-Earth gravity - matches the "safe to spawn" guarantee
     else gravity = rng.float(0.1, 2.0);
 
     const roughness = rng.int(0, 5);
@@ -510,18 +529,34 @@
     let lifeType = "None";
 
     if (cls === "Terrestrial" && !starProfile.isCompact && !starProfile.isBlackHole) {
-      breathable =
-        (terrain === "Terra" || terrain === "Forest" || terrain === "Safe Start") &&
-        temperature >= 260 && temperature <= 330 &&
-        gravity >= 0.7 && gravity <= 1.4 &&
-        rng.next() > 0.30;
+      if (terrain === "Safe Start") {
+        // "Safe Start" worlds are, by definition, where new players spawn.
+        // A spawn world that isn't breathable and doesn't have plant life
+        // defeats the entire point of the terrain's name - it can't be a
+        // coin flip the way ordinary Terra/Forest habitability is. The
+        // hard temperature/orbital-safety floor in pickTerrainForBody
+        // already guarantees this terrain only appears in a genuinely
+        // livable zone (never around a compact star or black hole, only
+        // within a livable temperature band), so once a world IS Safe
+        // Start, breathability and basic plant life are guaranteed rather
+        // than re-rolled here.
+        breathable = true;
+        hasLife = true;
+        lifeType = "Plant";
+      } else {
+        breathable =
+          (terrain === "Terra" || terrain === "Forest") &&
+          temperature >= 260 && temperature <= 330 &&
+          gravity >= 0.7 && gravity <= 1.4 &&
+          rng.next() > 0.30;
 
-      if (breathable && rng.next() < 0.22) {
-        hasLife = true;
-        lifeType = rng.next() < 0.72 ? "Plant" : "Fungus";
-      } else if (rng.next() < 0.05 && (terrain === "Tundra" || terrain === "Volcanic" || terrain === "Ice World")) {
-        hasLife = true;
-        lifeType = "Fungus";
+        if (breathable && rng.next() < 0.22) {
+          hasLife = true;
+          lifeType = rng.next() < 0.72 ? "Plant" : "Fungus";
+        } else if (rng.next() < 0.05 && (terrain === "Tundra" || terrain === "Volcanic" || terrain === "Ice World")) {
+          hasLife = true;
+          lifeType = "Fungus";
+        }
       }
     }
 
@@ -536,7 +571,12 @@
       orbitRadius <= 10 ? rng.next() < 0.35 :
       rng.next() < 0.10;
 
-    if (cls === "Terrestrial" && terrain === "Terra" && breathable) {
+    if (cls === "Terrestrial" && breathable && (terrain === "Terra" || terrain === "Safe Start")) {
+      // A tidally-locked world has one face in permanent day and one in
+      // permanent night - inconsistent with "Earth-like" (Terra) or
+      // "safe to spawn on" (Safe Start) once breathability is guaranteed.
+      // This previously only excluded Terra, not Safe Start, even after
+      // Safe Start became a guaranteed-breathable terrain above.
       tidallyLocked = false;
     }
 
@@ -829,6 +869,16 @@
     return n.toFixed(digits);
   }
 
+  // Display-only Kelvin -> Celsius conversion. All internal temperature
+  // math/storage (Temperature, StarTemperature) stays in Kelvin, since the
+  // luminosity/distance formulas and habitable-band checks are written in
+  // Kelvin - this only affects what's shown to the user. "C*" is the
+  // requested unit label in place of "°C".
+  function fmtTempC(kelvin) {
+    const c = Math.round(kelvin - 273.15);
+    return `${c} C*`;
+  }
+
   function getCurrentPathText() {
     const s = state.currentSystem;
     const b = state.currentBody;
@@ -866,9 +916,9 @@
       } else if (s.IsCompact) {
         lines.push(`RADIUS      ${fmtNumber(s.StarRadiusKm)} km`);
         lines.push(`MASS        ${s.StarMassSol.toFixed(2)} M☉`);
-        lines.push(`SURF TEMP   ${fmtNumber(s.StarTemperature)} K`);
+        lines.push(`SURF TEMP   ${fmtTempC(s.StarTemperature)}`);
       } else {
-        lines.push(`SURF TEMP   ${fmtNumber(s.StarTemperature)} K`);
+        lines.push(`SURF TEMP   ${fmtTempC(s.StarTemperature)}`);
         lines.push(`MASS        ${s.StarMassSol.toFixed(2)} M☉`);
       }
 
@@ -902,7 +952,7 @@
         `SIZE        ${b.Size}`,
         `GRAVITY     ${b.Gravity.toFixed(2)} g`,
         `ORBIT       ${Math.round(b.OrbitRadius)} PU`,
-        `TEMP        ${b.Temperature} K`,
+        `TEMP        ${fmtTempC(b.Temperature)}`,
         `BREATHABLE  ${b.Breathable ? "Yes" : "No"}`,
         `TIDAL LOCK  ${b.TidallyLocked ? "Yes" : "No"}`,
         `RINGS       ${b.HasRings ? "Yes" : "No"}`,
