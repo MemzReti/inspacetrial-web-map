@@ -5,15 +5,15 @@
 
   const CONFIG = {
     seed: 1,
-    systemCount: 100,
+    systemCount: 500,
     clusterScale: 18,
     systemScale: 22,
     starCount: 220,
 
     // Stellar population mix (of the 100 systems).
-    neutronCount: 25,
-    pulsarCount: 15,
-    blackHoleCount: 15,
+    neutronCount: 50,
+    pulsarCount: 35,
+    blackHoleCount: 40,
     // remaining 45 are ordinary stars (Red Dwarf / Yellow / Blue Giant / White / Orange)
   };
 
@@ -22,14 +22,14 @@
     "Kel","Lum","Mev","Nox","Orv","Pex","Qur","Rex","Syx","Tel",
     "Ulv","Vex","Wor","Xen","Yar","Zel","Brev","Cyn","Eph","Grel",
     "Keth","Lyv","Myr","Nev","Oph","Pral","Quil","Riv","Stel","Thar",
-    "Vor","Wyv","Dov","Frel","Hux","Zeph","Trev","Drel","Crav","Meth",
+    "Vor","Wyv","Dov","Frel","Hux","Zeph","Trev","Drel","Crav","Ski",
     "Lix","Sorn","Phel","Yorv","Varn","Cres","Dax","Ulm","Ith","Jor"
   ];
 
   const NAME_B = [
     "al","an","el","en","ir","ix","on","or","ul","ur",
     "ax","ex","ov","um","av","em","yr","ob","ag","ec",
-    "id","og","ud","ak","ek","ok","ar","er","ot","ut",
+    "id","og","ud","ak","ek","ok","ar","er","ot","bidi",
     "is","as","es","os","un","il","yl","op","enx","olv"
   ];
 
